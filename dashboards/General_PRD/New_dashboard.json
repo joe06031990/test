@@ -7,10 +7,10 @@
     "canStar": true,
     "canDelete": true,
     "slug": "new-dashboard",
-    "url": "/d/db501b64-ee46-4366-9961-150b4388dd30/new-dashboard",
+    "url": "/d/jo4h7x6/new-dashboard",
     "expires": "0001-01-01T00:00:00Z",
-    "created": "2025-07-24T21:03:11Z",
-    "updated": "2025-07-24T21:03:11Z",
+    "created": "2025-07-24T21:03:15Z",
+    "updated": "2025-07-24T21:03:15Z",
     "updatedBy": "Anonymous",
     "createdBy": "Anonymous",
     "version": 1,
@@ -56,13 +56,13 @@
     "editable": true,
     "fiscalYearStartMonth": 0,
     "graphTooltip": 0,
-    "id": 44,
+    "id": 56,
     "links": [],
     "panels": [
       {
         "datasource": {
-          "type": "loki",
-          "uid": "grafanacloud-logs"
+          "type": "prometheus",
+          "uid": "grafanacloud-prom"
         },
         "fieldConfig": {
           "defaults": {
@@ -120,8 +120,8 @@
           "overrides": []
         },
         "gridPos": {
-          "h": 11,
-          "w": 24,
+          "h": 8,
+          "w": 12,
           "x": 0,
           "y": 0
         },
@@ -139,21 +139,17 @@
             "sort": "none"
           }
         },
-        "pluginVersion": "12.1.0-88993",
+        "pluginVersion": "12.1.0-16426244399",
         "targets": [
           {
             "datasource": {
-              "type": "loki",
-              "uid": "grafanacloud-logs"
+              "type": "prometheus",
+              "uid": "grafanacloud-prom"
             },
-            "direction": "backward",
-            "editorMode": "code",
-            "expr": "max(count_over_time({service_name=\"cartservice\"} |= \"GetCartAsync called\" [1m]))",
-            "queryType": "range",
             "refId": "A"
           }
         ],
-        "title": "New Panel",
+        "title": "New panel",
         "type": "timeseries"
       }
     ],
@@ -164,13 +160,13 @@
       "list": []
     },
     "time": {
-      "from": "now-7d",
+      "from": "now-6h",
       "to": "now"
     },
     "timepicker": {},
     "timezone": "browser",
     "title": "New dashboard",
-    "uid": "db501b64-ee46-4366-9961-150b4388dd30",
+    "uid": "jo4h7x6",
     "version": 1
   }
 }
