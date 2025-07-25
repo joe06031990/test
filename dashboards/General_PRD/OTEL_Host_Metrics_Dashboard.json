@@ -9,10 +9,10 @@
     "slug": "otel-host-metrics-dashboard",
     "url": "/d/ea279a2b-23ac-4e1f-88c0-25de0ee8b58a/otel-host-metrics-dashboard",
     "expires": "0001-01-01T00:00:00Z",
-    "created": "2025-05-24T11:35:17Z",
-    "updated": "2025-05-24T11:35:17Z",
-    "updatedBy": "joesenior07",
-    "createdBy": "joesenior07",
+    "created": "2025-07-24T21:03:11Z",
+    "updated": "2025-07-24T21:03:11Z",
+    "updatedBy": "Anonymous",
+    "createdBy": "Anonymous",
     "version": 1,
     "hasAcl": false,
     "isFolder": false,
@@ -53,7 +53,7 @@
     "editable": true,
     "gnetId": null,
     "graphTooltip": 0,
-    "id": 18,
+    "id": 46,
     "panels": [
       {
         "datasource": "${DS_PROMETHEUS}",

@@ -10,10 +10,10 @@
     "url": "/d/e10c11f2-8bd8-4718-a265-db4515c45497/incident-insights",
     "expires": "0001-01-01T00:00:00Z",
     "created": "2025-07-23T19:07:19Z",
-    "updated": "2025-07-23T19:07:19Z",
+    "updated": "2025-07-24T21:00:46Z",
     "updatedBy": "Anonymous",
     "createdBy": "Anonymous",
-    "version": 1,
+    "version": 4,
     "hasAcl": false,
     "isFolder": false,
     "apiVersion": "v0alpha1",
@@ -2737,7 +2737,7 @@
     "title": "Incident Insights",
     "type": "grafana-incident-datasource",
     "uid": "e10c11f2-8bd8-4718-a265-db4515c45497",
-    "version": 1,
+    "version": 4,
     "weekStart": ""
   }
 }

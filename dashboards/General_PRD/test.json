@@ -7,13 +7,13 @@
     "canStar": true,
     "canDelete": true,
     "slug": "test",
-    "url": "/d/92f87c0f-c145-4eba-b60d-4c90d953cccf/test",
+    "url": "/d/jos5pxz/test",
     "expires": "0001-01-01T00:00:00Z",
-    "created": "2025-05-16T17:51:02Z",
-    "updated": "2025-05-16T17:53:09Z",
-    "updatedBy": "joesenior07",
-    "createdBy": "joesenior07",
-    "version": 2,
+    "created": "2025-07-24T21:03:14Z",
+    "updated": "2025-07-24T21:03:14Z",
+    "updatedBy": "Anonymous",
+    "createdBy": "Anonymous",
+    "version": 1,
     "hasAcl": false,
     "isFolder": false,
     "apiVersion": "v0alpha1",
@@ -56,7 +56,7 @@
     "editable": true,
     "fiscalYearStartMonth": 0,
     "graphTooltip": 0,
-    "id": 16,
+    "id": 52,
     "links": [],
     "panels": [],
     "preload": false,
@@ -65,10 +65,14 @@
     "templating": {
       "list": []
     },
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
     "timepicker": {},
-    "timezone": "",
+    "timezone": "browser",
     "title": "test",
-    "uid": "92f87c0f-c145-4eba-b60d-4c90d953cccf",
-    "version": 2
+    "uid": "jos5pxz",
+    "version": 1
   }
 }

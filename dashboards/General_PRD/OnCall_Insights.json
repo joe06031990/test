@@ -10,10 +10,10 @@
     "url": "/d/2fa54e70-c48b-4146-82f3-f3ee34204255/oncall-insights",
     "expires": "0001-01-01T00:00:00Z",
     "created": "2025-05-13T17:30:34Z",
-    "updated": "2025-05-13T17:30:34Z",
+    "updated": "2025-07-24T21:00:45Z",
     "updatedBy": "Anonymous",
     "createdBy": "Anonymous",
-    "version": 1,
+    "version": 4,
     "hasAcl": false,
     "isFolder": false,
     "apiVersion": "v0alpha1",
@@ -1615,7 +1615,7 @@
     "timezone": "browser",
     "title": "OnCall Insights",
     "uid": "2fa54e70-c48b-4146-82f3-f3ee34204255",
-    "version": 1,
+    "version": 4,
     "weekStart": ""
   }
 }
