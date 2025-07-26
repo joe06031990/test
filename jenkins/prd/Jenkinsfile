@@ -1,0 +1,193 @@
+pipeline {
+    agent any
+
+    environment {
+        GRAFANA_API_KEY = credentials('GRAFANA_API_KEY')
+        GRAFANA_URL = "https://jstest2025.grafana.net"
+        GRAFANA_BACKUP_DIR = "playground_prd" // This is the Git directory where the relevant backups will go
+    }
+
+    stages {
+        stage('Checkout Git Repository') {
+            steps {
+                checkout([$class: 'GitSCM', branches: [[name: '*/master']],
+                          userRemoteConfigs: [[credentialsId: 'github-creds1', url: 'https://github.com/joe06031990/test']]])
+            }
+        }
+
+        stage('Run Grafana Dashboard Backup') {
+            steps {
+                script {
+                    def grafanaBackupScriptContent = '''
+                        #!/bin/bash
+                        set -e
+                        set -x # Keep debugging enabled for this run
+
+                        CURL_CMD="/usr/bin/curl"
+                        JQ_CMD="/usr/bin/jq"
+
+                        if [ ! -f "${CURL_CMD}" ]; then
+                            echo "Error: 'curl' not found at ${CURL_CMD}. Please install it on the Jenkins agent."
+                            exit 1
+                        fi
+                        if [ ! -f "${JQ_CMD}" ]; then
+                            echo "Error: 'jq' not found at ${JQ_CMD}. Please install it on the Jenkins agent."
+                            exit 1
+                        fi
+
+                        if [ -z "${GRAFANA_URL}" ]; then
+                            echo "Error: GRAFANA_URL environment variable is not set."
+                            exit 1
+                        fi
+                        if [ -z "${GRAFANA_API_KEY}" ]; then
+                            echo "Error: GRAFANA_API_KEY environment variable is not set."
+                            exit 1
+                        fi
+                        if [ -z "${GRAFANA_BACKUP_DIR}" ]; then
+                            echo "Error: GRAFANA_BACKUP_DIR environment variable is not set."
+                            exit 1
+                        fi
+
+                        echo "Starting Grafana dashboard backup from ${GRAFANA_URL} to Git path ${GRAFANA_BACKUP_DIR}"
+
+                        if [ -d "${GRAFANA_BACKUP_DIR}" ]; then
+                            echo "Clearing existing backup directory: ${GRAFANA_BACKUP_DIR}"
+                            rm -rf "${GRAFANA_BACKUP_DIR}"
+                        fi
+                        mkdir -p "${GRAFANA_BACKUP_DIR}"
+                        echo "Created backup directory: ${GRAFANA_BACKUP_DIR}"
+
+                        sanitize_filename() {
+                            echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
+                        }
+
+                        # --- NEW: Define a map of Grafana folder titles to their desired relative paths in Git ---
+                        # Key: Grafana Folder Title (as seen in UI/API)
+                        # Value: Relative path from GRAFANA_BACKUP_DIR. Use "" for direct placement in GRAFANA_BACKUP_DIR.
+                        declare -A GRAFANA_FOLDER_MAP
+                        GRAFANA_FOLDER_MAP["playground"]=""              # For dashboards directly in Grafana's "playground" folder
+                        GRAFANA_FOLDER_MAP["huuhuh"]="huuhuh"            # For dashboards directly in Grafana's "huuhuh" folder (subfolder of playground)
+                        GRAFANA_FOLDER_MAP["fff"]="huuhuh/fff"           # For dashboards directly in Grafana's "fff" folder (sub-subfolder: playground -> huuhuh -> fff)
+                        GRAFANA_FOLDER_MAP["dre"]="huuhuh/fff/f/dre"
+
+                        # Note: If you add more nested folders (e.g., playground/huuhuh/another_sub),
+                        # you would add: GRAFANA_FOLDER_MAP["another_sub"]="huuhuh/another_sub"
+                        # If you add a new top-level folder you want to back up *to this same Git repo's playground folder*,
+                        # you would map it here: GRAFANA_FOLDER_MAP["NewTopFolder"]="NewTopFolder"
+                        # This method requires manual updates if new nested folders are added.
+
+                        echo "--- Fetching All Dashboards from Grafana ---"
+                        ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
+                        echo "${ALL_DASHBOARDS_META}" | ${JQ_CMD} . 
+                        echo "--- End All Dashboards ---"
+
+                        PROCESSED_DASHBOARD_UIDS=""
+
+                        echo "${ALL_DASHBOARDS_META}" | ${JQ_CMD} -c '.[]' | while read -r DASHBOARD_META_INFO; do
+                            DASHBOARD_UID=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.uid')
+                            DASHBOARD_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.title')
+                            
+                            # Cleaned folder title for map lookup (should match sanitize_filename output)
+                            CLEAN_FOLDER_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.folderTitle // "General"' | tr -d '\n\r\t ')
+
+                            if [[ "${PROCESSED_DASHBOARD_UIDS}" == *"${DASHBOARD_UID}"* ]]; then
+                                echo "  Skipping already processed dashboard: ${DASHBOARD_TITLE} (UID: ${DASHBOARD_UID})"
+                                continue
+                            fi
+
+                            # --- NEW FILTERING AND PATH DETERMINATION LOGIC BASED ON FOLDER TITLE MAP ---
+                            TARGET_GIT_RELATIVE_PATH=""
+                            
+                            # Check if the folder title exists as a key in our map
+                            if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"] ]]; then
+                                TARGET_GIT_RELATIVE_PATH="${GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"]}"
+                                echo "--- DEBUG FILTER BEGIN for '${DASHBOARD_TITLE}' (UID: ${DASHBOARD_UID}) ---"
+                                echo "  Dashboard's FOLDER_TITLE (cleaned): '${CLEAN_FOLDER_TITLE}'"
+                                echo "  MATCH: Folder title found in map. Relative Git path: '${TARGET_GIT_RELATIVE_PATH}'"
+                                echo "  Decision: PROCESS this dashboard."
+                                echo "--- DEBUG FILTER END ---"
+                            else
+                                echo "--- DEBUG FILTER BEGIN for '${DASHBOARD_TITLE}' (UID: ${DASHBOARD_UID}) ---"
+                                echo "  Dashboard's FOLDER_TITLE (cleaned): '${CLEAN_FOLDER_TITLE}'"
+                                echo "  NO MATCH: Folder title not found in target hierarchy map. Skipping dashboard."
+                                echo "--- DEBUG FILTER END ---"
+                                continue # Skip this dashboard as its folder is not in our desired hierarchy
+                            fi
+                            # --- END FILTERING AND PATH DETERMINATION LOGIC ---
+
+                            SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
+                            
+                            # Construct the full path where the dashboard will be saved in Git
+                            CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}" # Always starts with 'playground'
+                            if [ -n "${TARGET_GIT_RELATIVE_PATH}" ]; then # If it's not the main 'playground' folder
+                                CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${TARGET_GIT_RELATIVE_PATH}"
+                            fi
+                            mkdir -p "${CURRENT_SAVE_DIR}"
+
+                            filename="${SANITIZED_DASH_TITLE}.json"
+                            filepath="${CURRENT_SAVE_DIR}/${filename}"
+
+                            DASHBOARD_DATA=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/dashboards/uid/${DASHBOARD_UID}")
+                            
+                            if [ -n "${DASHBOARD_DATA}" ] && [ "$(${JQ_CMD} -r '.dashboard.title' <<< "${DASHBOARD_DATA}")" != "null" ]; then
+                                echo "  Exporting dashboard: ${DASHBOARD_TITLE} to ${filepath} (from Grafana folder: ${CLEAN_FOLDER_TITLE})"
+                                echo "${DASHBOARD_DATA}" | ${JQ_CMD} -r '.dashboard' > "${filepath}"
+                                PROCESSED_DASHBOARD_UIDS="${PROCESSED_DASHBOARD_UIDS} ${DASHBOARD_UID}"
+                            else
+                                echo "  Warning: Could not get JSON for dashboard ${DASHBOARD_TITLE} (UID: ${DASHBOARD_UID}). Skipping."
+                            fi
+                        done
+
+                        echo "Grafana dashboard backup process complete."
+                    '''
+
+                    writeFile(file: 'run_grafana_backup.sh', text: grafanaBackupScriptContent)
+                    sh 'chmod +x run_grafana_backup.sh'
+                    sh 'bash ./run_grafana_backup.sh'
+                }
+            }
+        }
+
+        stage('Commit and Push Changes to Git') {
+            steps {
+                script {
+                    sh "git config user.email 'jenkins@example.com'"
+                    sh "git config user.name 'Jenkins Automated Backup'"
+
+                    sh "git add ${env.GRAFANA_BACKUP_DIR}"
+
+                    def changes = sh(returnStatus: true, script: "git diff-index --quiet HEAD -- ${env.GRAFANA_BACKUP_DIR}")
+
+                    if (changes != 0) {
+                        sh "git commit -m 'Grafana Dashboards Backup - \$(date +%Y-%m-%d_%H-%M-%S)'"
+                        echo "Changes committed locally."
+
+                        withCredentials([string(credentialsId: 'github-creds1', variable: 'GIT_PAT')]) {
+                            sh "git push https://joe06031990:${GIT_PAT}@github.com/joe06031990/test HEAD:master"
+                        }
+                        echo "Changes pushed to remote Git repository."
+                    } else {
+                        echo "No changes detected in Grafana dashboards. Nothing to commit."
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        // Removed email notifications as requested
+        // failure {
+        //     mail to: 'your-email@example.com',
+        //          subject: "Jenkins Build Failed: ${env.JOB_NAME} - #${env.BUILD_NUMBER}",
+        //          body: "Jenkins pipeline for Grafana dashboard backup failed.\n\nBuild URL: ${env.BUILD_URL}"
+        // }
+        // success {
+        //     mail to: 'your-email@example.com',
+        //          subject: "Jenkins Build Succeeded: ${env.JOB_NAME} - #${env.BUILD_NUMBER}",
+        //          body: "Jenkins pipeline for Grafana dashboard backup succeeded.\n\nBuild URL: ${env.BUILD_URL}"
+        // }
+    }
+}
