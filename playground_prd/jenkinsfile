@@ -4,7 +4,7 @@ pipeline {
     environment {
         GRAFANA_API_KEY = credentials('GRAFANA_API_KEY')
         GRAFANA_URL = "https://jstest2025.grafana.net"
-        GRAFANA_BACKUP_DIR = "playground" // This is the Git directory where the relevant backups will go
+        GRAFANA_BACKUP_DIR = "playground_prd" // This is the Git directory where the relevant backups will go
     }
 
     stages {
