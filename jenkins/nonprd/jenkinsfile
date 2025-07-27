@@ -54,6 +54,7 @@ pipeline {
 
                         declare -A GRAFANA_FOLDER_MAP
                         GRAFANA_FOLDER_MAP["playground"]=""
+                        GRAFANA_FOLDER_MAP["engineering"]="engineering"
                         GRAFANA_FOLDER_MAP["huuhuh"]="huuhuh"
                         GRAFANA_FOLDER_MAP["fff"]="huuhuh/fff"
                         GRAFANA_FOLDER_MAP["dre"]="huuhuh/fff/f/dre"
