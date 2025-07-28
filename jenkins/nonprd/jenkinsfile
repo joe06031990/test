@@ -59,6 +59,7 @@ pipeline {
                         GRAFANA_FOLDER_MAP["huuhuh"]="huuhuh"
                         GRAFANA_FOLDER_MAP["fff"]="huuhuh/fff"
                         GRAFANA_FOLDER_MAP["dre"]="huuhuh/fff/f/dre"
+                        GRAFANA_FOLDER_MAP["j"]="huuhuh/j"
 
                         ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
 
