@@ -7,7 +7,7 @@ pipeline {
     triggers {
         // 'H/2 * * * *' means the job will run approximately every 2 minutes.
         // Jenkins uses a hash ('H') to spread the load, so it's not exactly on the minute.
-        cron('H/2 * * * *')
+        cron('H * * * *')
     }
 
     // Defines environment variables that will be available throughout the pipeline.
