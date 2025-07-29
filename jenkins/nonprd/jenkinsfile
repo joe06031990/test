@@ -52,13 +52,10 @@ pipeline {
                             echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
                         }
 
-                        # IMPORTANT: Add your folders with spaces here as keys
                         declare -A GRAFANA_FOLDER_MAP
                         GRAFANA_FOLDER_MAP["playground"]=""
                         GRAFANA_FOLDER_MAP["engineering"]="engineering"
-                        GRAFANA_FOLDER_MAP["experience_enginnering"]="experience_enginnering"
-                        GRAFANA_FOLDER_MAP["A Folder With Spaces"]="a_folder_with_spaces" # Example
-                        # ... add other mappings here
+                        GRAFANA_FOLDER_MAP["My Reports"]="my_reports" # Example with spaces
 
                         ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
 
@@ -68,7 +65,7 @@ pipeline {
                             DASHBOARD_UID=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.uid')
                             DASHBOARD_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.title')
                             
-                            # Corrected line: no longer removes spaces from the folder title
+                            # THIS IS THE CORRECTED LINE: The space has been removed from the 'tr' command
                             CLEAN_FOLDER_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.folderTitle // "General"' | tr -d '\\n\\r\\t')
 
                             if [[ "${PROCESSED_DASHBOARD_UIDS}" == *"${DASHBOARD_UID}"* ]]; then
@@ -119,9 +116,7 @@ pipeline {
 
                     def changes = sh(returnStatus: true, script: "git diff-index --quiet HEAD -- ${env.GRAFANA_BACKUP_DIR}")
                     if (changes != 0) {
-                        // Corrected line: uses single quotes to avoid Groovy interpolation
-                        sh 'git commit -m "Grafana Dashboards Backup - $(date +%Y-%m-%d_%H-%M-%S)"'
-                        
+                        sh "git commit -m 'Grafana Dashboards Backup - \$(date +%Y-%m-%d_%H-%M-%S)'"
                         withCredentials([string(credentialsId: 'github-creds1', variable: 'GIT_PAT')]) {
                             sh '''
                                 git remote set-url origin https://github.com/joe06031990/test
