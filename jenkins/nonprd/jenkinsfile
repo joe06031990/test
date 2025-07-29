@@ -70,7 +70,7 @@ pipeline {
                             ["engineering1"]="engineering1" \
                             ["i"]="i" \
                             ["j"]="j" \
-                            ["experience enginnering"]="experience_enginnering" \
+                            ["experience enginnering"]="experience enginnering" \
                         )
 
                         echo "--- Fetching All Dashboards from Grafana ---"
