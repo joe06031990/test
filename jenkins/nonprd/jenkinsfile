@@ -87,6 +87,7 @@ pipeline {
                         GRAFANA_FOLDER_MAP["fff"]="huuhuh/fff"
                         GRAFANA_FOLDER_MAP["j"]="huuhuh/j"
                         GRAFANA_FOLDER_MAP["f"]="huuhuh/fff/f"
+                        GRAFANA_FOLDER_MAP["dre"]="huuhuh/fff/f/dre"
                         GRAFANA_FOLDER_MAP["i"]="i"
                         GRAFANA_FOLDER_MAP["experience enginnering"]="experience_engineering"
                         GRAFANA_FOLDER_MAP["Doctor Who"]="Doctor_Who"
