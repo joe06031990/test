@@ -57,7 +57,8 @@ pipeline {
                         }
 
                         declare -A GRAFANA_FOLDER_MAP
-                        GRAFANA_FOLDER_MAP["playground"]=""
+                        # Ensure all values are non-empty to maintain folder structure
+                        GRAFANA_FOLDER_MAP["playground"]="playground"
                         GRAFANA_FOLDER_MAP["engineering"]="engineering"
                         GRAFANA_FOLDER_MAP["engineering1"]="engineering1"
                         GRAFANA_FOLDER_MAP["huuhuh"]="huuhuh"
@@ -88,6 +89,7 @@ pipeline {
 
                             SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
                             CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}"
+                            # This check ensures that an empty value from the map doesn't break the structure
                             if [ -n "${TARGET_GIT_RELATIVE_PATH}" ]; then
                                 CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${TARGET_GIT_RELATIVE_PATH}"
                             fi
