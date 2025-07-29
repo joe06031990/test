@@ -90,7 +90,10 @@ pipeline {
                             if [[ "${PROCESSED_DASHBOARD_UIDS}" == *"${DASHBOARD_UID}"* ]]; then
                                 echo "  Skipping already processed dashboard: ${DASHBOARD_TITLE} (UID: ${DASHBOARD_UID})"
                                 continue
-                            層 TARGET_GIT_RELATIVE_PATH="" 
+                            fi
+
+                            # --- FILTERING AND PATH DETERMINATION LOGIC BASED ON FOLDER TITLE MAP ---
+                            TARGET_GIT_RELATIVE_PATH="" 
                             
                             if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}"] ]]; then
                                 TARGET_GIT_RELATIVE_PATH="${GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}"]}"
@@ -112,6 +115,7 @@ pipeline {
 
                             SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
                             
+                            # Construct the full path where the dashboard will be saved in Git
                             CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}" 
                             if [ -n "${TARGET_GIT_RELATIVE_PATH}" ]; then 
                                 CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${TARGET_GIT_RELATIVE_PATH}"
@@ -134,7 +138,7 @@ pipeline {
 
                         echo "Grafana dashboard backup process complete."
                     ''' 
-                    # End of grafanaBackupScriptContent
+                    # End of grafanaBackupScriptContent on its own line
 
                     writeFile(file: 'run_grafana_backup.sh', text: grafanaBackupScriptContent)
                     sh 'chmod +x run_grafana_backup.sh'
