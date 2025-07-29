@@ -1,10 +1,14 @@
 pipeline {
     agent any
 
+    triggers {
+        cron('H/2 * * * *') // Run every 2 minutes
+    }
+
     environment {
         GRAFANA_API_KEY = credentials('GRAFANA_API_KEY')
         GRAFANA_URL = "https://jstest2025.grafana.net"
-        GRAFANA_BACKUP_DIR = "playground_nonprd" 
+        GRAFANA_BACKUP_DIR = "playground_nonprd" // This is the Git directory where the relevant backups will go
     }
 
     stages {
@@ -35,16 +39,8 @@ pipeline {
                             exit 1
                         fi
 
-                        if [ -z "${GRAFANA_URL}" ]; then
-                            echo "Error: GRAFANA_URL environment variable is not set."
-                            exit 1
-                        fi
-                        if [ -z "${GRAFANA_API_KEY}" ]; then
-                            echo "Error: GRAFANA_API_KEY environment variable is not set."
-                            exit 1
-                        fi
-                        if [ -z "${GRAFANA_BACKUP_DIR}" ]; then
-                            echo "Error: GRAFANA_BACKUP_DIR environment variable is not set."
+                        if [ -z "${GRAFANA_URL}" ] || [ -z "${GRAFANA_API_KEY}" ] || [ -z "${GRAFANA_BACKUP_DIR}" ]; then
+                            echo "Missing required environment variables."
                             exit 1
                         fi
 
@@ -62,7 +58,9 @@ pipeline {
                         }
 
                         # --- Explicit Map-based Folder Filtering and Path Building ---
-                        # CRITICAL FIX: Ensure keys match sanitized folder titles (spaces become underscores!)
+                        # CRITICAL FIX: Initialize GRAFANA_FOLDER_MAP on a single line to avoid newline parsing issues.
+                        # Add ALL known folder titles and their full desired relative Git paths here.
+                        # Format: ["GrafanaTitle"]="path/in/git"
                         declare -A GRAFANA_FOLDER_MAP=( \
                             ["playground"]="" \
                             ["huuhuh"]="huuhuh" \
@@ -73,7 +71,7 @@ pipeline {
                             ["engineering1"]="engineering1" \
                             ["i"]="i" \
                             ["j"]="j" \
-                            ["experience_enginnering"]="experience_enginnering" \
+                            ["experience enginnering"]="experience_enginnering" \
                         )
 
                         echo "--- Fetching All Dashboards from Grafana ---"
@@ -88,7 +86,6 @@ pipeline {
                             DASHBOARD_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.title')
                             
                             CLEAN_FOLDER_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.folderTitle // "General"' | tr -d '\n\r\t ')
-                            # Apply sanitize_filename to the extracted folder title to match map keys
                             CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP=$(sanitize_filename "${CLEAN_FOLDER_TITLE}")
 
                             if [[ "${PROCESSED_DASHBOARD_UIDS}" == *"${DASHBOARD_UID}"* ]]; then
@@ -99,8 +96,7 @@ pipeline {
                             # --- FILTERING AND PATH DETERMINATION LOGIC BASED ON FOLDER TITLE MAP ---
                             TARGET_GIT_RELATIVE_PATH="" 
                             
-                            # Check if the dashboard's CLEAN_FOLDER_TITLE exists as a key in our predefined map
-                            if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}"] ]]; then # Use the sanitized version for lookup
+                            if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}"] ]]; then
                                 TARGET_GIT_RELATIVE_PATH="${GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}"]}"
                                 echo "--- DEBUG FILTER BEGIN for '${DASHBOARD_TITLE}' (UID: ${DASHBOARD_UID}) ---"
                                 echo "  Dashboard'\''s FOLDER_TITLE (cleaned from API): '\''${CLEAN_FOLDER_TITLE}'\'''"
@@ -120,7 +116,6 @@ pipeline {
 
                             SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
                             
-                            # Construct the full path where the dashboard will be saved in Git
                             CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}" 
                             if [ -n "${TARGET_GIT_RELATIVE_PATH}" ]; then 
                                 CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${TARGET_GIT_RELATIVE_PATH}"
@@ -155,7 +150,13 @@ pipeline {
             steps {
                 script {
                     sh "git config user.email 'jenkins@example.com'"
-                    sh "git user.name 'Jenkins Automated Backup'"
+                    # CRITICAL FIX: Corrected git user.name command
+                    sh "git config user.name 'Jenkins Automated Backup'"
+
+                    // DEBUG: List files to confirm what's present before git add
+                    echo "--- Files in ${env.GRAFANA_BACKUP_DIR} before git add ---"
+                    sh "ls -R ${env.GRAFANA_BACKUP_DIR}"
+                    echo "--- End files list ---"
 
                     sh "git add ${env.GRAFANA_BACKUP_DIR}"
 
