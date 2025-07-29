@@ -70,7 +70,7 @@ pipeline {
                             ["engineering1"]="engineering1" \
                             ["i"]="i" \
                             ["j"]="j" \
-                            ["experience enginnering"]="experience enginnering" \
+                            ["experience enginnering"]="experience_enginnering" \
                         )
 
                         echo "--- Fetching All Dashboards from Grafana ---"
@@ -138,7 +138,7 @@ pipeline {
 
                         echo "Grafana dashboard backup process complete."
                     ''' 
-                    // This is the end of grafanaBackupScriptContent (comment moved to separate line)
+                    # END of grafanaBackupScriptContent on its own line
 
                     writeFile(file: 'run_grafana_backup.sh', text: grafanaBackupScriptContent)
                     sh 'chmod +x run_grafana_backup.sh'
