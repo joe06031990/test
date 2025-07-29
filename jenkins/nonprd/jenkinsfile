@@ -24,7 +24,7 @@ pipeline {
                 script {
                     def grafanaBackupScriptContent = '''#!/bin/bash
                         set -e
-                        set -x // Keep debugging enabled for this run
+                        set -x # Keep debugging enabled for this run
 
                         CURL_CMD="/usr/bin/curl"
                         JQ_CMD="/usr/bin/jq"
@@ -56,22 +56,11 @@ pipeline {
                             echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
                         }
 
-                        // --- Explicit Map-based Folder Filtering and Path Building ---
-                        // CRITICAL FIX: Initialize GRAFANA_FOLDER_MAP on a single line to avoid newline parsing issues.
-                        // Add ALL known folder titles and their full desired relative Git paths here.
-                        // Format: ["GrafanaTitle"]="path/in/git"
-                        declare -A GRAFANA_FOLDER_MAP=( \
-                            ["playground"]="" \
-                            ["huuhuh"]="huuhuh" \
-                            ["fff"]="huuhuh/fff" \
-                            ["f"]="huuhuh/fff/f" \
-                            ["dre"]="huuhuh/fff/f/dre" \
-                            ["engineering"]="engineering" \
-                            ["engineering1"]="engineering1" \
-                            ["i"]="i" \
-                            ["j"]="j" \
-                            ["experience enginnering"]="experience_enginnering" \
-                        )
+                        # --- Explicit Map-based Folder Filtering and Path Building ---
+                        # CRITICAL FIX: Initialize GRAFANA_FOLDER_MAP on a single line for robustness.
+                        # Add ALL known folder titles and their full desired relative Git paths here.
+                        # Format: ["GrafanaTitle"]="path/in/git"
+                        declare -A GRAFANA_FOLDER_MAP=( ["playground"]="" ["huuhuh"]="huuhuh" ["fff"]="huuhuh/fff" ["f"]="huuhuh/fff/f" ["dre"]="huuhuh/fff/f/dre" ["engineering"]="engineering" ["engineering1"]="engineering1" ["i"]="i" ["j"]="j" ["experience enginnering"]="experience_enginnering" )
 
                         echo "--- Fetching All Dashboards from Grafana ---"
                         ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
@@ -92,13 +81,13 @@ pipeline {
                                 continue
                             fi
 
-                            // --- FILTERING AND PATH DETERMINATION LOGIC BASED ON FOLDER TITLE MAP ---
+                            # --- FILTERING AND PATH DETERMINATION LOGIC BASED ON FOLDER TITLE MAP ---
                             TARGET_GIT_RELATIVE_PATH="" 
                             
                             if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}"] ]]; then
                                 TARGET_GIT_RELATIVE_PATH="${GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}"]}"
                                 echo "--- DEBUG FILTER BEGIN for '${DASHBOARD_TITLE}' (UID: ${DASHBOARD_UID}) ---"
-                                echo "  Dashboard'\''s FOLDER_TITLE (cleaned from API): '\''${CLEAN_FOLDER_TITLE}'\'''"
+                                echo "  Dashboard'\''s FOLDER_TITLE (cleaned): '\''${CLEAN_FOLDER_TITLE}'\'''"
                                 echo "  Folder title used for MAP lookup: '\''${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}'\'''"
                                 echo "  MATCH: Folder title found in map. Relative Git path: '\''${TARGET_GIT_RELATIVE_PATH}'\'''"
                                 echo "  Decision: PROCESS this dashboard."
@@ -111,7 +100,7 @@ pipeline {
                                 echo "--- DEBUG FILTER END ---"
                                 continue 
                             fi
-                            // --- END FILTERING AND PATH DETERMINATION LOGIC ---
+                            # --- END FILTERING AND PATH DETERMINATION LOGIC ---
 
                             SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
                             
@@ -124,61 +113,4 @@ pipeline {
                             filename="${SANITIZED_DASH_TITLE}.json"
                             filepath="${CURRENT_SAVE_DIR}/${filename}"
 
-                            DASHBOARD_DATA=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/dashboards/uid/${DASHBOARD_UID}")
-                            
-                            if [ -n "${DASHBOARD_DATA}" ] && [ "$(${JQ_CMD} -r '.dashboard.title' <<< "${DASHBOARD_DATA}")" != "null" ]; then
-                                echo "  Exporting dashboard: ${DASHBOARD_TITLE} to ${filepath} (from Grafana folder: ${CLEAN_FOLDER_TITLE})"
-                                echo "${DASHBOARD_DATA}" | ${JQ_CMD} -r '.dashboard' > "${filepath}"
-                                PROCESSED_DASHBOARD_UIDS="${PROCESSED_DASHBOARD_UIDS} ${DASHBOARD_UID}"
-                            else
-                                echo "  Warning: Could not get JSON for dashboard ${DASHBOARD_TITLE} (UID: ${DASHBOARD_UID}). Skipping."
-                            fi
-                        done
-
-                        echo "Grafana dashboard backup process complete."
-                    '''
-
-                    writeFile(file: 'run_grafana_backup.sh', text: grafanaBackupScriptContent)
-                    sh 'chmod +x run_grafana_backup.sh'
-                    sh 'bash ./run_grafana_backup.sh'
-                }
-            }
-        }
-
-        stage('Commit and Push Changes to Git') {
-            steps {
-                script {
-                    sh "git config user.email 'jenkins@example.com'"
-                    sh "git config user.name 'Jenkins Automated Backup'" // FIX: Corrected git user.name command
-
-                    // DEBUG: List files to confirm what's present before git add
-                    echo "--- Files in ${env.GRAFANA_BACKUP_DIR} before git add ---"
-                    sh "ls -R ${env.GRAFANA_BACKUP_DIR}"
-                    echo "--- End files list ---"
-
-                    sh "git add ${env.GRAFANA_BACKUP_DIR}"
-
-                    def changes = sh(returnStatus: true, script: "git diff-index --quiet HEAD -- ${env.GRAFANA_BACKUP_DIR}")
-
-                    if (changes != 0) {
-                        sh "git commit -m 'Grafana Dashboards Backup - \$(date +%Y-%m-%d_%H-%M-%S)'"
-                        echo "Changes committed locally."
-
-                        withCredentials([string(credentialsId: 'github-creds1', variable: 'GIT_PAT')]) {
-                            sh "git push https://joe06031990:${GIT_PAT}@github.com/joe06031990/test HEAD:master"
-                        }
-                        echo "Changes pushed to remote Git repository."
-                    } else {
-                        echo "No changes detected in Grafana dashboards. Nothing to commit."
-                    }
-                }
-            }
-        }
-    }
-
-    post {
-        always {
-            cleanWs()
-        }
-    }
-}
+                            DASHBOARD_DATA=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${
