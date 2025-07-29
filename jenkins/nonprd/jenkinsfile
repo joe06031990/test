@@ -138,7 +138,7 @@ pipeline {
 
                         echo "Grafana dashboard backup process complete."
                     ''' 
-                    # End of grafanaBackupScriptContent (THIS COMMENT IS NOW OUTSIDE THE ''' BLOCK)
+                    # End of grafanaBackupScriptContent (THIS COMMENT IS NOW A REGULAR GROOVY COMMENT)
 
                     writeFile(file: 'run_grafana_backup.sh', text: grafanaBackupScriptContent)
                     sh 'chmod +x run_grafana_backup.sh'
