@@ -90,15 +90,12 @@ pipeline {
                             if [[ "${PROCESSED_DASHBOARD_UIDS}" == *"${DASHBOARD_UID}"* ]]; then
                                 echo "  Skipping already processed dashboard: ${DASHBOARD_TITLE} (UID: ${DASHBOARD_UID})"
                                 continue
-                            fi
-
-                            # --- FILTERING AND PATH DETERMINATION LOGIC BASED ON FOLDER TITLE MAP ---
-                            TARGET_GIT_RELATIVE_PATH="" 
+                            層 TARGET_GIT_RELATIVE_PATH="" 
                             
                             if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}"] ]]; then
                                 TARGET_GIT_RELATIVE_PATH="${GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}"]}"
                                 echo "--- DEBUG FILTER BEGIN for '${DASHBOARD_TITLE}' (UID: ${DASHBOARD_UID}) ---"
-                                echo "  Dashboard'\''s FOLDER_TITLE (cleaned from API): '\''${CLEAN_FOLDER_TITLE}'\'''"
+                                echo "  Dashboard'\''s FOLDER_TITLE (cleaned): '\''${CLEAN_FOLDER_TITLE}'\'''"
                                 echo "  Folder title used for MAP lookup: '\''${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}'\'''"
                                 echo "  MATCH: Folder title found in map. Relative Git path: '\''${TARGET_GIT_RELATIVE_PATH}'\'''"
                                 echo "  Decision: PROCESS this dashboard."
@@ -115,7 +112,6 @@ pipeline {
 
                             SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
                             
-                            # Construct the full path where the dashboard will be saved in Git
                             CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}" 
                             if [ -n "${TARGET_GIT_RELATIVE_PATH}" ]; then 
                                 CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${TARGET_GIT_RELATIVE_PATH}"
@@ -137,7 +133,8 @@ pipeline {
                         done
 
                         echo "Grafana dashboard backup process complete."
-                    ''' # This is the end of grafanaBackupScriptContent
+                    ''' 
+                    # End of grafanaBackupScriptContent
 
                     writeFile(file: 'run_grafana_backup.sh', text: grafanaBackupScriptContent)
                     sh 'chmod +x run_grafana_backup.sh'
@@ -150,7 +147,7 @@ pipeline {
             steps {
                 script {
                     sh "git config user.email 'jenkins@example.com'"
-                    sh "git config user.name 'Jenkins Automated Backup'" // Corrected command
+                    sh "git config user.name 'Jenkins Automated Backup'" 
 
                     echo "--- Files in ${env.GRAFANA_BACKUP_DIR} before git add ---"
                     sh "ls -R ${env.GRAFANA_BACKUP_DIR}"
