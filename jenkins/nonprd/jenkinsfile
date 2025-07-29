@@ -88,6 +88,7 @@ pipeline {
                         GRAFANA_FOLDER_MAP["huuhuh"]="huuhuh"
                         GRAFANA_FOLDER_MAP["i"]="i"
                         GRAFANA_FOLDER_MAP["experience enginnering"]="experience_engineering"
+                        GRAFANA_FOLDER_MAP["Doctor Who"]="Doctor_Who"
 
                         # --- Main Backup Logic ---
                         # Fetches a list of metadata for all dashboards from the Grafana API.
