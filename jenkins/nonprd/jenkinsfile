@@ -1,31 +1,48 @@
+// Defines the start of a declarative Jenkins pipeline.
 pipeline {
+    // Specifies that the pipeline can run on any available Jenkins agent.
     agent any
 
+    // Sets up an automatic schedule for the pipeline to run.
     triggers {
-        cron('H * * * *')
+        // 'H/2 * * * *' means the job will run approximately every 2 minutes.
+        cron('H/2 * * * *')
     }
 
+    // Defines environment variables that will be available throughout the pipeline.
     environment {
+        // Securely loads the Grafana API key from Jenkins credentials.
         GRAFANA_API_KEY = credentials('GRAFANA_API_KEY')
+        // The URL of your Grafana instance.
         GRAFANA_URL = "https://jstest2025.grafana.net"
+        // The name of the root directory where backups will be stored in the Git repository.
         GRAFANA_BACKUP_DIR = "playground_nonprd"
     }
 
+    // Contains all the main work stages of the pipeline.
     stages {
+        // The first stage: responsible for checking out code from your Git repository.
         stage('Checkout Git Repository') {
             steps {
+                // The 'checkout' step clones or updates the specified Git repository and branch.
                 checkout([$class: 'GitSCM', branches: [[name: '*/master']],
                           userRemoteConfigs: [[credentialsId: 'github-creds1', url: 'https://github.com/joe06031990/test']]])
             }
         }
 
+        // The second stage: runs the main backup logic.
         stage('Run Grafana Dashboard Backup') {
             steps {
+                // A 'script' block allows for more complex Groovy code and logic.
                 script {
+                    // A multiline string variable in Groovy that holds the entire bash script.
                     def grafanaBackupScriptContent = '''#!/bin/bash
+                        # 'set -e' ensures the script will exit immediately if a command fails.
                         set -e
+                        # 'set -x' prints each command to the log before it is executed, which is useful for debugging.
                         set -x
 
+                        # --- Script Setup ---
                         CURL_CMD="/usr/bin/curl"
                         JQ_CMD="/usr/bin/jq"
 
@@ -45,15 +62,19 @@ pipeline {
 
                         echo "Starting Grafana dashboard backup from ${GRAFANA_URL} to ${GRAFANA_BACKUP_DIR}"
 
-                        # THIS IS THE CRITICAL LINE.
-                        # It MUST be commented out with a '#' for additive backups.
+                        # --- Backup Preparation ---
+                        # The 'rm -rf' command is now commented out to create an additive backup.
+                        # This means old files and folders will NOT be deleted.
                         # rm -rf "${GRAFANA_BACKUP_DIR}"
                         mkdir -p "${GRAFANA_BACKUP_DIR}"
 
+                        # A function to clean up dashboard titles to make them safe as filenames.
                         sanitize_filename() {
                             echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
                         }
 
+                        # --- Folder Mapping ---
+                        # This map defines which Grafana folders to back up.
                         declare -A GRAFANA_FOLDER_MAP
                         GRAFANA_FOLDER_MAP["playground"]=""
                         GRAFANA_FOLDER_MAP["engineering"]="engineering"
@@ -63,10 +84,13 @@ pipeline {
                         GRAFANA_FOLDER_MAP["experience enginnering"]="experience_engineering"
                         GRAFANA_FOLDER_MAP["Doctor Who"]="Doctor_Who"
 
+                        # --- Main Backup Logic ---
+                        # Fetches a list of metadata for all dashboards from the Grafana API.
                         ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
 
                         PROCESSED_DASHBOARD_UIDS=""
 
+                        # Processes the list of dashboards one by one.
                         echo "${ALL_DASHBOARDS_META}" | ${JQ_CMD} -c '.[]' | while read -r DASHBOARD_META_INFO; do
                             DASHBOARD_UID=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.uid')
                             DASHBOARD_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.title')
@@ -76,10 +100,12 @@ pipeline {
                                 continue
                             fi
 
+                            # Checks if the dashboard's folder is in our approved list.
                             TARGET_GIT_RELATIVE_PATH=""
                             if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"] ]]; then
                                 TARGET_GIT_RELATIVE_PATH="${GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"]}"
                             else
+                                # If the folder is NOT in the map, skip this dashboard.
                                 continue
                             fi
 
@@ -93,6 +119,7 @@ pipeline {
                             filename="${SANITIZED_DASH_TITLE}.json"
                             filepath="${CURRENT_SAVE_DIR}/${filename}"
 
+                            # Fetches the full JSON content for this specific dashboard.
                             DASHBOARD_DATA=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/dashboards/uid/${DASHBOARD_UID}")
                             
                             if [ -n "${DASHBOARD_DATA}" ] && [ "$(${JQ_CMD} -r '.dashboard.title' <<< "${DASHBOARD_DATA}")" != "null" ]; then
@@ -111,6 +138,7 @@ pipeline {
             }
         }
 
+        // The third stage: commits and pushes the backup files to Git.
         stage('Commit and Push Changes to Git') {
             steps {
                 script {
@@ -118,12 +146,15 @@ pipeline {
                     sh "git config user.name 'Jenkins Automated Backup'"
                     sh "git add ${env.GRAFANA_BACKUP_DIR}"
 
+                    // Checks if there are any actual changes to commit.
                     def changes = sh(returnStatus: true, script: "git diff-index --quiet HEAD -- ${env.GRAFANA_BACKUP_DIR}")
                     
                     if (changes != 0) {
+                        // Commits the changes with a timestamp.
                         sh "git commit -m 'Grafana Dashboards Backup - \$(date +%Y-%m-%d_%H-%M-%S)'"
                         
                         withCredentials([string(credentialsId: 'github-creds1', variable: 'GIT_PAT')]) {
+                            // Pushes the new commit to the 'master' branch.
                             sh '''
                                 git remote set-url origin https://github.com/joe06031990/test
                                 git config credential.helper store
@@ -139,8 +170,11 @@ pipeline {
         }
     }
 
+    // The 'post' section defines actions that run at the end of the pipeline.
     post {
+        // 'always' means this action will run regardless of the pipeline's status.
         always {
+            // 'cleanWs' deletes all files from the workspace for a clean start next time.
             cleanWs()
         }
     }
