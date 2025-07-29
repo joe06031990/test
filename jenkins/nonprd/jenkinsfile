@@ -119,7 +119,9 @@ pipeline {
 
                     def changes = sh(returnStatus: true, script: "git diff-index --quiet HEAD -- ${env.GRAFANA_BACKUP_DIR}")
                     if (changes != 0) {
-                        sh "git commit -m 'Grafana Dashboards Backup - $(date +%Y-%m-%d_%H-%M-%S)'"
+                        // Corrected line: uses single quotes to avoid Groovy interpolation
+                        sh 'git commit -m "Grafana Dashboards Backup - $(date +%Y-%m-%d_%H-%M-%S)"'
+                        
                         withCredentials([string(credentialsId: 'github-creds1', variable: 'GIT_PAT')]) {
                             sh '''
                                 git remote set-url origin https://github.com/joe06031990/test
