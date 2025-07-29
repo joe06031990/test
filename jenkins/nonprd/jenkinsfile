@@ -53,9 +53,14 @@ pipeline {
                         }
 
                         declare -A GRAFANA_FOLDER_MAP
+                        # Ensure all folders you want to back up are listed here
                         GRAFANA_FOLDER_MAP["playground"]=""
                         GRAFANA_FOLDER_MAP["engineering"]="engineering"
-                        GRAFANA_FOLDER_MAP["My Reports"]="my_reports" # Example with spaces
+                        GRAFANA_FOLDER_MAP["engineering1"]="engineering1"
+                        GRAFANA_FOLDER_MAP["huuhuh"]="huuhuh"
+                        GRAFANA_FOLDER_MAP["i"]="i"
+                        # THIS IS THE NEW LINE YOU NEED TO ADD - key must match Grafana folder name exactly
+                        GRAFANA_FOLDER_MAP["experience enginnering"]="experience_engineering"
 
                         ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
 
@@ -65,7 +70,6 @@ pipeline {
                             DASHBOARD_UID=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.uid')
                             DASHBOARD_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.title')
                             
-                            # THIS IS THE CORRECTED LINE: The space has been removed from the 'tr' command
                             CLEAN_FOLDER_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.folderTitle // "General"' | tr -d '\\n\\r\\t')
 
                             if [[ "${PROCESSED_DASHBOARD_UIDS}" == *"${DASHBOARD_UID}"* ]]; then
@@ -76,6 +80,7 @@ pipeline {
                             if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"] ]]; then
                                 TARGET_GIT_RELATIVE_PATH="${GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"]}"
                             else
+                                # This is why it was skipping: the folder was not in the map
                                 continue
                             fi
 
@@ -116,6 +121,7 @@ pipeline {
 
                     def changes = sh(returnStatus: true, script: "git diff-index --quiet HEAD -- ${env.GRAFANA_BACKUP_DIR}")
                     if (changes != 0) {
+                        // This is the corrected commit message line
                         sh "git commit -m 'Grafana Dashboards Backup - \$(date +%Y-%m-%d_%H-%M-%S)'"
                         withCredentials([string(credentialsId: 'github-creds1', variable: 'GIT_PAT')]) {
                             sh '''
