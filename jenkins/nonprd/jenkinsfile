@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     triggers {
-        cron('H/2 * * * *') // Run every 2 minutes
+        cron('H/2 * * * *')  // Run every 2 minutes
     }
 
     environment {
@@ -22,10 +22,9 @@ pipeline {
         stage('Run Grafana Dashboard Backup') {
             steps {
                 script {
-                    def grafanaBackupScriptContent = '''
-                        #!/bin/bash
+                    def grafanaBackupScriptContent = '''#!/bin/bash
                         set -e
-                        set -x # Keep debugging enabled for this run
+                        set -x // Keep debugging enabled for this run
 
                         CURL_CMD="/usr/bin/curl"
                         JQ_CMD="/usr/bin/jq"
@@ -57,10 +56,10 @@ pipeline {
                             echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
                         }
 
-                        # --- Explicit Map-based Folder Filtering and Path Building ---
-                        # CRITICAL FIX: Initialize GRAFANA_FOLDER_MAP on a single line to avoid newline parsing issues.
-                        # Add ALL known folder titles and their full desired relative Git paths here.
-                        # Format: ["GrafanaTitle"]="path/in/git"
+                        // --- Explicit Map-based Folder Filtering and Path Building ---
+                        // CRITICAL FIX: Initialize GRAFANA_FOLDER_MAP on a single line to avoid newline parsing issues.
+                        // Add ALL known folder titles and their full desired relative Git paths here.
+                        // Format: ["GrafanaTitle"]="path/in/git"
                         declare -A GRAFANA_FOLDER_MAP=( \
                             ["playground"]="" \
                             ["huuhuh"]="huuhuh" \
@@ -93,7 +92,7 @@ pipeline {
                                 continue
                             fi
 
-                            # --- FILTERING AND PATH DETERMINATION LOGIC BASED ON FOLDER TITLE MAP ---
+                            // --- FILTERING AND PATH DETERMINATION LOGIC BASED ON FOLDER TITLE MAP ---
                             TARGET_GIT_RELATIVE_PATH="" 
                             
                             if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}"] ]]; then
@@ -106,13 +105,13 @@ pipeline {
                                 echo "--- DEBUG FILTER END ---"
                             else
                                 echo "--- DEBUG FILTER BEGIN for '${DASHBOARD_TITLE}' (UID: ${DASHBOARD_UID}) ---"
-                                echo "  Dashboard'\''s FOLDER_TITLE (cleaned from API): '\''${CLEAN_FOLDER_TITLE}'\'''"
+                                echo "  Dashboard'\''s FOLDER_TITLE (cleaned): '\''${CLEAN_FOLDER_TITLE}'\'''"
                                 echo "  Folder title used for MAP lookup: '\''${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}'\'''"
                                 echo "  NO MATCH: Folder title not found in target hierarchy map. Skipping dashboard."
                                 echo "--- DEBUG FILTER END ---"
                                 continue 
                             fi
-                            # --- END FILTERING AND PATH DETERMINATION LOGIC ---
+                            // --- END FILTERING AND PATH DETERMINATION LOGIC ---
 
                             SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
                             
@@ -150,8 +149,7 @@ pipeline {
             steps {
                 script {
                     sh "git config user.email 'jenkins@example.com'"
-                    # CRITICAL FIX: Corrected git user.name command
-                    sh "git config user.name 'Jenkins Automated Backup'"
+                    sh "git config user.name 'Jenkins Automated Backup'" // FIX: Corrected git user.name command
 
                     // DEBUG: List files to confirm what's present before git add
                     echo "--- Files in ${env.GRAFANA_BACKUP_DIR} before git add ---"
