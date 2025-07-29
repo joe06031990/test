@@ -66,8 +66,10 @@ pipeline {
 
                         echo "Starting Grafana dashboard backup from ${GRAFANA_URL} to ${GRAFANA_BACKUP_DIR}"
 
-                        # Using additive backup logic. The 'rm -rf' command is intentionally removed
-                        # so that existing folders and dashboards are never deleted from the backup.
+                        # --- CHANGE #1: Re-enabled rm -rf for "mirror" backup ---
+                        # This command deletes the old backup directory to ensure a fresh start.
+                        # This is what makes the backup a "mirror" of Grafana's current state.
+                        rm -rf "${GRAFANA_BACKUP_DIR}"
                         mkdir -p "${GRAFANA_BACKUP_DIR}"
 
                         # A function to clean up dashboard titles to make them safe for use as filenames.
@@ -78,20 +80,17 @@ pipeline {
                         # This map is the core of the folder logic. It translates a folder name from Grafana
                         # to a directory path in your Git repository.
                         declare -A GRAFANA_FOLDER_MAP
-                        # The key [in brackets] MUST EXACTLY match the folder name in Grafana.
-                        # The value on the right is the Git directory path and should not be empty.
                         GRAFANA_FOLDER_MAP["playground"]=""
                         GRAFANA_FOLDER_MAP["engineering"]="engineering"
                         GRAFANA_FOLDER_MAP["engineering1"]="engineering1"
                         GRAFANA_FOLDER_MAP["huuhuh"]="huuhuh"
-                        GRAFANA_FOLDER_MAP["fff"]="huuhuh/fff"
                         GRAFANA_FOLDER_MAP["j"]="huuhuh/j"
+                        GRAFANA_FOLDER_MAP["fff"]="huuhuh/fff"
                         GRAFANA_FOLDER_MAP["f"]="huuhuh/fff/f"
                         GRAFANA_FOLDER_MAP["dre"]="huuhuh/fff/f/dre"
                         GRAFANA_FOLDER_MAP["i"]="i"
                         GRAFANA_FOLDER_MAP["experience enginnering"]="experience_engineering"
                         GRAFANA_FOLDER_MAP["Doctor Who"]="Doctor_Who"
-                        # This line creates the nested structure by defining the full path.
                         GRAFANA_FOLDER_MAP["This Test"]="experience_engineering/This_Test"
 
                         # Fetches a list of metadata for all dashboards from the Grafana API.
@@ -164,7 +163,8 @@ pipeline {
                 script {
                     sh "git config user.email 'jenkins@example.com'"
                     sh "git config user.name 'Jenkins Automated Backup'"
-                    sh "git add ${env.GRAFANA_BACKUP_DIR}"
+                    // --- CHANGE #2: Use 'git add --all' to include deletions ---
+                    sh "git add --all ${env.GRAFANA_BACKUP_DIR}"
 
                     // Checks if there are any actual changes to commit. This prevents empty commits.
                     def changes = sh(returnStatus: true, script: "git diff-index --quiet HEAD -- ${env.GRAFANA_BACKUP_DIR}")
