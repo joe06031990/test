@@ -2,13 +2,13 @@ pipeline {
     agent any
 
     triggers {
-        cron('H/2 * * * *')  // Run every 2 minutes
+        cron('H/2 * * * *')
     }
 
     environment {
         GRAFANA_API_KEY = credentials('GRAFANA_API_KEY')
         GRAFANA_URL = "https://jstest2025.grafana.net"
-        GRAFANA_BACKUP_DIR = "playground_nonprd" // This is the Git directory where the relevant backups will go
+        GRAFANA_BACKUP_DIR = "playground_nonprd"
     }
 
     stages {
@@ -24,7 +24,7 @@ pipeline {
                 script {
                     def grafanaBackupScriptContent = '''#!/bin/bash
                         set -e
-                        set -x # Keep debugging enabled for this run
+                        set -x
 
                         CURL_CMD="/usr/bin/curl"
                         JQ_CMD="/usr/bin/jq"
@@ -56,10 +56,6 @@ pipeline {
                             echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
                         }
 
-                        # --- Explicit Map-based Folder Filtering and Path Building ---
-                        # CRITICAL FIX: Initialize GRAFANA_FOLDER_MAP on a single line for robustness.
-                        # Add ALL known folder titles and their full desired relative Git paths here.
-                        # Format: ["GrafanaTitle"]="path/in/git"
                         declare -A GRAFANA_FOLDER_MAP=( \
                             ["playground"]="" \
                             ["huuhuh"]="huuhuh" \
@@ -92,7 +88,6 @@ pipeline {
                                 continue
                             fi
 
-                            # --- FILTERING AND PATH DETERMINATION LOGIC BASED ON FOLDER TITLE MAP ---
                             TARGET_GIT_RELATIVE_PATH="" 
                             
                             if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}"] ]]; then
@@ -111,11 +106,9 @@ pipeline {
                                 echo "--- DEBUG FILTER END ---"
                                 continue 
                             fi
-                            # --- END FILTERING AND PATH DETERMINATION LOGIC ---
 
                             SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
                             
-                            # Construct the full path where the dashboard will be saved in Git
                             CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}" 
                             if [ -n "${TARGET_GIT_RELATIVE_PATH}" ]; then 
                                 CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${TARGET_GIT_RELATIVE_PATH}"
@@ -129,7 +122,7 @@ pipeline {
                             
                             if [ -n "${DASHBOARD_DATA}" ] && [ "$(${JQ_CMD} -r '.dashboard.title' <<< "${DASHBOARD_DATA}")" != "null" ]; then
                                 echo "  Exporting dashboard: ${DASHBOARD_TITLE} to ${filepath} (from Grafana folder: ${CLEAN_FOLDER_TITLE})"
-                                echo "${DASHBOARD_DATA}" | ${JQ_CMD} -r '.dashboard' > "${filepath}"
+                                echo "${DASHBOARD_DATA}" | ${JQ_CMD} -r '.dashboard' > "${filepath}" 
                                 PROCESSED_DASHBOARD_UIDS="${PROCESSED_DASHBOARD_UIDS} ${DASHBOARD_UID}"
                             else
                                 echo "  Warning: Could not get JSON for dashboard ${DASHBOARD_TITLE} (UID: ${DASHBOARD_UID}). Skipping."
@@ -138,7 +131,6 @@ pipeline {
 
                         echo "Grafana dashboard backup process complete."
                     ''' 
-                    # END of grafanaBackupScriptContent on its own line
 
                     writeFile(file: 'run_grafana_backup.sh', text: grafanaBackupScriptContent)
                     sh 'chmod +x run_grafana_backup.sh'
