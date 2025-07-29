@@ -123,9 +123,13 @@ done
 echo "🎯 Backup complete. Here's the full file list:"
 find "${GRAFANA_BACKUP_DIR}" -type f
 
-if [ ! -s "${GRAFANA_BACKUP_DIR}/experience_enginnering/"*".json" ]; then
+# ✅ FIXED: Check for at least one JSON file in the target folder
+DASH_COUNT=$(find "${GRAFANA_BACKUP_DIR}/experience_enginnering" -type f -name '*.json' | wc -l)
+if [ "${DASH_COUNT}" -eq 0 ]; then
     echo "❌ ERROR: No dashboards found in 'experience_enginnering'. Failing build for safety."
     exit 1
+else
+    echo "✅ ${DASH_COUNT} dashboard(s) found in experience_enginnering."
 fi
 '''
 
