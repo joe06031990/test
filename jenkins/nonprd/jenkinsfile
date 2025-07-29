@@ -51,7 +51,6 @@ if [ -d "${GRAFANA_BACKUP_DIR}" ]; then
     rm -rf "${GRAFANA_BACKUP_DIR}"
 fi
 mkdir -p "${GRAFANA_BACKUP_DIR}"
-echo "Created backup directory: ${GRAFANA_BACKUP_DIR}"
 
 sanitize_filename() {
     echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
@@ -70,14 +69,7 @@ declare -A GRAFANA_FOLDER_MAP=(
     ["experience enginnering"]="experience_enginnering" 
 )
 
-echo "--- Fetching All Dashboards from Grafana ---"
 ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
-echo "${ALL_DASHBOARDS_META}" | ${JQ_CMD} . 
-echo "--- End All Dashboards ---"
-
-# Print all distinct folder titles for analysis
-echo "→ ALL folder titles returned by Grafana:"
-echo "${ALL_DASHBOARDS_META}" | ${JQ_CMD} -r '.[].folderTitle // "General"' | sort | uniq
 
 PROCESSED_DASHBOARD_UIDS=""
 UNMAPPED_FOLDERS_LOG="${GRAFANA_BACKUP_DIR}/unmapped_folders.txt"
@@ -98,18 +90,15 @@ echo "${ALL_DASHBOARDS_META}" | ${JQ_CMD} -c '.[]' | while read -r DASHBOARD_MET
         continue
     fi
 
-    TARGET_GIT_RELATIVE_PATH=""
-
-    if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}"] ]]; then
-        TARGET_GIT_RELATIVE_PATH="${GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}"]}"
-        echo "  MATCHED folder. Path: '${TARGET_GIT_RELATIVE_PATH}'"
-    else
-        echo "  ❌ NO MATCH: Skipping dashboard. Logging folder '${CLEAN_FOLDER_TITLE}'"
+    if [[ ! -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}"] ]]; then
+        echo "  ❌ NO MATCH: Logging folder '${CLEAN_FOLDER_TITLE}'"
         echo "${CLEAN_FOLDER_TITLE}" >> "${UNMAPPED_FOLDERS_LOG}"
         continue
     fi
 
+    TARGET_GIT_RELATIVE_PATH="${GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE_FOR_MAP_LOOKUP}"]}"
     SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
+
     CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}"
     if [ -n "${TARGET_GIT_RELATIVE_PATH}" ]; then 
         CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${TARGET_GIT_RELATIVE_PATH}"
@@ -119,18 +108,25 @@ echo "${ALL_DASHBOARDS_META}" | ${JQ_CMD} -c '.[]' | while read -r DASHBOARD_MET
     filename="${SANITIZED_DASH_TITLE}.json"
     filepath="${CURRENT_SAVE_DIR}/${filename}"
 
+    echo "  Fetching dashboard: ${DASHBOARD_TITLE} (UID: ${DASHBOARD_UID})"
     DASHBOARD_DATA=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/dashboards/uid/${DASHBOARD_UID}")
 
     if [ -n "${DASHBOARD_DATA}" ] && [ "$(${JQ_CMD} -r '.dashboard.title' <<< "${DASHBOARD_DATA}")" != "null" ]; then
-        echo "  Exporting dashboard: ${DASHBOARD_TITLE} to ${filepath}"
+        echo "  ✅ Saving to ${filepath}"
         echo "${DASHBOARD_DATA}" | ${JQ_CMD} -r '.dashboard' > "${filepath}"
         PROCESSED_DASHBOARD_UIDS="${PROCESSED_DASHBOARD_UIDS} ${DASHBOARD_UID}"
     else
-        echo "  Warning: Could not get JSON for dashboard ${DASHBOARD_TITLE}. Skipping."
+        echo "  ⚠️ Failed to fetch dashboard JSON. Skipping."
     fi
 done
 
-echo "Grafana dashboard backup process complete."
+echo "🎯 Backup complete. Here's the full file list:"
+find "${GRAFANA_BACKUP_DIR}" -type f
+
+if [ ! -s "${GRAFANA_BACKUP_DIR}/experience_enginnering/"*".json" ]; then
+    echo "❌ ERROR: No dashboards found in 'experience_enginnering'. Failing build for safety."
+    exit 1
+fi
 '''
 
                     writeFile(file: 'run_grafana_backup.sh', text: grafanaBackupScriptContent)
@@ -143,26 +139,23 @@ echo "Grafana dashboard backup process complete."
         stage('Commit and Push Changes to Git') {
             steps {
                 script {
+                    echo "--- Git directory before commit ---"
+                    sh "find ${env.GRAFANA_BACKUP_DIR} -type f"
+                    echo "--- End of file listing ---"
+
                     sh "git config user.email 'jenkins@example.com'"
                     sh "git config user.name 'Jenkins Automated Backup'" 
-
-                    echo "--- Files in ${env.GRAFANA_BACKUP_DIR} before git add ---"
-                    sh "ls -R ${env.GRAFANA_BACKUP_DIR}"
-                    echo "--- End files list ---"
-
                     sh "git add ${env.GRAFANA_BACKUP_DIR}"
                     def changes = sh(returnStatus: true, script: "git diff-index --quiet HEAD -- ${env.GRAFANA_BACKUP_DIR}")
 
                     if (changes != 0) {
                         sh "git commit -m 'Grafana Dashboards Backup - \$(date +%Y-%m-%d_%H-%M-%S)'"
-                        echo "Changes committed locally."
-
                         withCredentials([string(credentialsId: 'github-creds1', variable: 'GIT_PAT')]) {
                             sh "git push https://joe06031990:${GIT_PAT}@github.com/joe06031990/test HEAD:master"
                         }
-                        echo "Changes pushed to remote Git repository."
+                        echo "✅ Changes pushed to GitHub."
                     } else {
-                        echo "No changes detected in Grafana dashboards. Nothing to commit."
+                        echo "No changes detected in Grafana dashboards."
                     }
                 }
             }
