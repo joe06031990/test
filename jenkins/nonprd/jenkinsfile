@@ -31,7 +31,6 @@ pipeline {
         }
 
         // THIS STAGE WILL NOW ONLY RUN ON THE 'master' BRANCH.
-        // This is critical for preventing builds on other branches from overwriting the backup.
         stage('Run Grafana Dashboard Backup') {
             when {
                 branch 'master'
@@ -45,9 +44,12 @@ pipeline {
                             set -e
                             # 'set -x' prints each command to the log before it is executed, useful for debugging.
                             set -x
-                            
+
                             CURL_CMD="/usr/bin/curl"
                             JQ_CMD="/usr/bin/jq"
+                            
+                            # Define the single root folder you want to back up.
+                            PLAYGROUND_FOLDER_TITLE="playground"
 
                             # Sanity checks to ensure required tools and variables are present.
                             if [ ! -f "${CURL_CMD}" ]; then
@@ -62,127 +64,96 @@ pipeline {
                                 echo "Missing required environment variables."
                                 exit 1
                             fi
-
-                            echo "Starting Grafana dashboard backup from ${GRAFANA_URL} to ${GRAFANA_BACKUP_DIR}"
+                            
+                            echo "Starting targeted Grafana dashboard backup..."
+                            echo "Target root folder: '${PLAYGROUND_FOLDER_TITLE}'"
 
                             # This command enables "mirror" mode by deleting the old backup directory.
-                            # This ensures dashboards deleted in Grafana are also removed from Git.
                             rm -rf "${GRAFANA_BACKUP_DIR}"
                             mkdir -p "${GRAFANA_BACKUP_DIR}"
+
+                            # Fetch all folders to find the ID of our target folder
+                            ALL_FOLDERS=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/folders")
+                            
+                            # Use jq to extract the integer ID of the target folder
+                            TARGET_FOLDER_ID=$(echo "${ALL_FOLDERS}" | ${JQ_CMD} -r --arg title "${PLAYGROUND_FOLDER_TITLE}" '.[] | select(.title==$title) | .id')
+
+                            if [ -z "${TARGET_FOLDER_ID}" ]; then
+                                echo "Error: Could not find a Grafana folder named '${PLAYGROUND_FOLDER_TITLE}'. Please ensure it exists."
+                                exit 1
+                            fi
+                            echo "Found target folder '${PLAYGROUND_FOLDER_TITLE}' with ID: ${TARGET_FOLDER_ID}"
+
+                            # Fetch a list of dashboards ONLY from the target folder and its subfolders.
+                            ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&folderIds=${TARGET_FOLDER_ID}")
 
                             # A function to clean up dashboard titles to make them safe for use as filenames.
                             sanitize_filename() {
                                 echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
                             }
 
-                            # ==================== AUTO-DISCOVERY SECTION ====================
-                            echo "🔍 Auto-discovering all folders from Grafana API..."
-                            
-                            # Fetch all folders from Grafana API - THIS IS THE AUTO-DISCOVERY
-                            ALL_FOLDERS=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/folders")
-                            
-                            # Create dynamic folder mapping that preserves structure
-                            declare -A AUTO_FOLDER_MAP
-                            
-                            # Handle special root cases
-                            AUTO_FOLDER_MAP["playground"]=""         # Root playground dashboards
-                            AUTO_FOLDER_MAP["General"]=""            # Default folder dashboards
-                            
-                            # Build parent folder lookup table first
+                            # The folder reconstruction logic remains important for subfolders.
+                            # We still build the full map to correctly place subfolder dashboards.
+                            declare -A FOLDER_PATH_MAP
                             declare -A PARENT_LOOKUP
                             echo "${ALL_FOLDERS}" | ${JQ_CMD} -c '.[]' | while read -r folder; do
-                                FOLDER_TITLE=$(echo "${folder}" | ${JQ_CMD} -r '.title')
-                                FOLDER_UID=$(echo "${folder}" | ${JQ_CMD} -r '.uid')
-                                echo "PARENT_LOOKUP[\"${FOLDER_UID}\"]=\"${FOLDER_TITLE}\"" >> /tmp/parent_lookup.sh
+                                PARENT_LOOKUP[$(echo "${folder}" | ${JQ_CMD} -r '.uid')]=$(echo "${folder}" | ${JQ_CMD} -r '.title')
                             done
-                            
-                            # Load parent lookup
-                            source /tmp/parent_lookup.sh 2>/dev/null || true
-                            
-                            # Process each folder and create proper mappings
-                            echo "${ALL_FOLDERS}" | ${JQ_CMD} -c '.[]' | while read -r folder; do
-                                FOLDER_TITLE=$(echo "${folder}" | ${JQ_CMD} -r '.title')
-                                FOLDER_UID=$(echo "${folder}" | ${JQ_CMD} -r '.uid')
-                                PARENT_UID=$(echo "${folder}" | ${JQ_CMD} -r '.parentUid // empty')
+
+                            # Recursive function to build the full path for a folder
+                            build_path() {
+                                local uid=$1
+                                local title=$(echo "${ALL_FOLDERS}" | ${JQ_CMD} -r --arg uid "$uid" '.[] | select(.uid==$uid) | .title')
+                                local parent_uid=$(echo "${ALL_FOLDERS}" | ${JQ_CMD} -r --arg uid "$uid" '.[] | select(.uid==$uid) | .parentUid // empty')
                                 
-                                if [ -n "${PARENT_UID}" ] && [[ -v PARENT_LOOKUP["${PARENT_UID}"] ]]; then
-                                    # This is a subfolder
-                                    PARENT_TITLE="${PARENT_LOOKUP["${PARENT_UID}"]}"
-                                    PARENT_SANITIZED=$(sanitize_filename "${PARENT_TITLE}")
-                                    FOLDER_SANITIZED=$(sanitize_filename "${FOLDER_TITLE}")
-                                    AUTO_PATH="${PARENT_SANITIZED}/${FOLDER_SANITIZED}"
-                                    echo " Subfolder discovered: '${FOLDER_TITLE}' -> '${AUTO_PATH}'"
+                                if [ -n "$parent_uid" ] && [ -n "${PARENT_LOOKUP[$parent_uid]}" ]; then
+                                    local parent_path=$(build_path "$parent_uid")
+                                    echo "${parent_path}/$(sanitize_filename "${title}")"
                                 else
-                                    # This is a top-level folder
-                                    AUTO_PATH=$(sanitize_filename "${FOLDER_TITLE}")
-                                    echo " Top-level folder discovered: '${FOLDER_TITLE}' -> '${AUTO_PATH}'"
+                                    # For the root "playground" folder, we want an empty base path inside the backup dir
+                                    if [ "${title}" == "${PLAYGROUND_FOLDER_TITLE}" ]; then
+                                        echo ""
+                                    else
+                                        echo "$(sanitize_filename "${title}")"
+                                    fi
                                 fi
-                                
-                                # Store the mapping
-                                echo "AUTO_FOLDER_MAP[\"${FOLDER_TITLE}\"]=\"${AUTO_PATH}\"" >> /tmp/auto_folders.sh
+                            }
+
+                            echo "${ALL_FOLDERS}" | ${JQ_CMD} -c '.[]' | while read -r folder; do
+                                FOLDER_UID=$(echo "$folder" | ${JQ_CMD} -r '.uid')
+                                FOLDER_PATH_MAP[$FOLDER_UID]=$(build_path "$FOLDER_UID")
                             done
-                            
-                            # Load all auto-discovered mappings
-                            source /tmp/auto_folders.sh 2>/dev/null || true
-                            
-                            echo " Auto-discovery complete. Found ${#AUTO_FOLDER_MAP[@]} folder mappings"
-                            
-                            # Debug: Show all discovered mappings
-                            for folder in "${!AUTO_FOLDER_MAP[@]}"; do
-                                echo "   '${folder}' -> '${AUTO_FOLDER_MAP[$folder]}'"
-                            done
-                            # ================================================================
 
-                            # Fetches a list of metadata for all dashboards from the Grafana API.
-                            ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
-
-                            PROCESSED_DASHBOARD_UIDS=""
-
-                            # Processes the list of dashboards one by one using a 'while' loop.
+                            # Process the pre-filtered list of dashboards
                             echo "${ALL_DASHBOARDS_META}" | ${JQ_CMD} -c '.[]' | while read -r DASHBOARD_META_INFO; do
                                 DASHBOARD_UID=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.uid')
                                 DASHBOARD_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.title')
-                                CLEAN_FOLDER_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.folderTitle // "General"' | tr -d '\\n\\r\\t')
+                                FOLDER_UID=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.folderUid')
 
-                                if [[ "${PROCESSED_DASHBOARD_UIDS}" == *"${DASHBOARD_UID}"* ]]; then
-                                    continue
-                                fi
-
-                                # ==================== USING AUTO-DISCOVERED MAPPINGS ====================
-                                TARGET_GIT_RELATIVE_PATH=""
-                                if [[ -v AUTO_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"] ]]; then
-                                    TARGET_GIT_RELATIVE_PATH="${AUTO_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"]}"
-                                    echo " Processing dashboard '${DASHBOARD_TITLE}' from folder '${CLEAN_FOLDER_TITLE}' -> '${TARGET_GIT_RELATIVE_PATH}'"
-                                else
-                                    # Fallback for unknown folders - auto-generate path
-                                    TARGET_GIT_RELATIVE_PATH=$(sanitize_filename "${CLEAN_FOLDER_TITLE}")
-                                    echo "  Unknown folder '${CLEAN_FOLDER_TITLE}' - auto-generating path '${TARGET_GIT_RELATIVE_PATH}'"
-                                fi
-                                # =====================================================================
-
-                                SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
+                                RELATIVE_PATH="${FOLDER_PATH_MAP[$FOLDER_UID]}"
+                                
+                                # Create the full path for saving the file
                                 CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}"
-                                if [ -n "${TARGET_GIT_RELATIVE_PATH}" ]; then
-                                    CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${TARGET_GIT_RELATIVE_PATH}"
+                                if [ -n "${RELATIVE_PATH}" ]; then
+                                    CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${RELATIVE_PATH}"
                                 fi
                                 mkdir -p "${CURRENT_SAVE_DIR}"
 
+                                SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
                                 filename="${SANITIZED_DASH_TITLE}.json"
                                 filepath="${CURRENT_SAVE_DIR}/${filename}"
 
+                                echo "Processing dashboard '${DASHBOARD_TITLE}' -> ${filepath}"
+                                
                                 DASHBOARD_DATA=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/dashboards/uid/${DASHBOARD_UID}")
                                 
                                 if [ -n "${DASHBOARD_DATA}" ] && [ "$(${JQ_CMD} -r '.dashboard.title' <<< "${DASHBOARD_DATA}")" != "null" ]; then
                                     echo "${DASHBOARD_DATA}" | ${JQ_CMD} -r '.dashboard' > "${filepath}"
-                                    PROCESSED_DASHBOARD_UIDS="${PROCESSED_DASHBOARD_UIDS} ${DASHBOARD_UID}"
                                     echo " Saved: ${filepath}"
                                 fi
                             done
 
-                            # Cleanup temporary files
-                            rm -f /tmp/auto_folders.sh /tmp/parent_lookup.sh
-
-                            echo " Backup complete - all playground dashboards and subfolders processed!"
+                            echo "Backup of '${PLAYGROUND_FOLDER_TITLE}' folder and its subfolders is complete!"
                     '''
 
                     writeFile(file: 'run_grafana_backup.sh', text: grafanaBackupScriptContent)
