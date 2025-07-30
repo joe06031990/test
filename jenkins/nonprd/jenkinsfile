@@ -1,105 +1,132 @@
+// Defines the start of a declarative Jenkins pipeline.
 pipeline {
+    // Specifies that the pipeline can run on any available Jenkins agent.
     agent any
 
+    // Sets up an automatic schedule for the pipeline to run.
     triggers {
-        cron('H/2 * * * *') // Runs approximately every hour
+        // 'H/2 * * * *' means the job will run approximately every 2 minutes.
+        cron('H/2 * * * *')
     }
 
+    // Defines environment variables that will be available throughout the pipeline.
     environment {
-        GRAFANA_API_KEY = credentials('GRAFANA_API_KEY') // Grafana API key from Jenkins credentials
-        GRAFANA_URL = "https://jstest2025.grafana.net"  // Grafana instance URL
-        GRAFANA_BACKUP_DIR = "playground_nonprd"        // Root directory for backups
+        // Securely loads the Grafana API key from Jenkins credentials.
+        GRAFANA_API_KEY = credentials('GRAFANA_API_KEY')
+        // The URL of your Grafana instance.
+        GRAFANA_URL = "https://jstest2025.grafana.net"
+        // The name of the root directory where backups will be stored in the Git repository.
+        GRAFANA_BACKUP_DIR = "playground_nonprd"
     }
 
+    // Contains all the main work stages of the pipeline.
     stages {
+        // The first stage: responsible for checking out code from your Git repository.
         stage('Checkout Git Repository') {
             steps {
-                checkout([$class: 'GitSCM', 
-                          branches: [[name: '*/master']],
+                // The 'checkout' step clones or updates the specified Git repository and branch.
+                checkout([$class: 'GitSCM', branches: [[name: '*/master']],
                           userRemoteConfigs: [[credentialsId: 'github-creds1', url: 'https://github.com/joe06031990/test']]])
             }
         }
 
+        // THIS STAGE WILL NOW ONLY RUN ON THE 'master' BRANCH.
         stage('Run Grafana Dashboard Backup') {
             when {
                 branch 'master'
             }
             steps {
+                // A 'script' block allows for more complex Groovy code and logic.
                 script {
+                    // A multiline string variable in Groovy that holds the entire bash script.
                     def grafanaBackupScriptContent = '''#!/bin/bash
-                            set -e
-                            set -x
+                        # 'set -e' ensures the script will exit immediately if a command fails.
+                        set -e
+                        # 'set -x' prints each command to the log before it is executed, useful for debugging.
+                        set -x
 
-                            CURL_CMD="/usr/bin/curl"
-                            JQ_CMD="/usr/bin/jq"
+                        CURL_CMD="/usr/bin/curl"
+                        JQ_CMD="/usr/bin/jq"
 
-                            if [ ! -f "${CURL_CMD}" ]; then
-                                echo "Error: 'curl' not found at ${CURL_CMD}. Please install it."
-                                exit 1
-                            fi
-                            if [ ! -f "${JQ_CMD}" ]; then
-                                echo "Error: 'jq' not found at ${JQ_CMD}. Please install it."
-                                exit 1
-                            fi
-                            if [ -z "${GRAFANA_URL}" ] || [ -z "${GRAFANA_API_KEY}" ] || [ -z "${GRAFANA_BACKUP_DIR}" ]; then
-                                echo "Missing required environment variables."
-                                exit 1
-                            fi
+                        # Sanity checks
+                        if [ -z "${GRAFANA_URL}" ] || [ -z "${GRAFANA_API_KEY}" ] || [ -z "${GRAFANA_BACKUP_DIR}" ]; then
+                            echo "Missing required environment variables."
+                            exit 1
+                        fi
 
-                            echo "Starting Grafana dashboard backup from ${GRAFANA_URL} to ${GRAFANA_BACKUP_DIR}"
+                        # === NEW: Define the list of folder names to back up ===
+                        # You must manually add the names of new folders to this list.
+                        # These are all the folders considered to be in the "playground" group.
+                        declare -a FOLDERS_TO_BACKUP=(
+                            "playground"
+                            "engineering"
+                            "engineering1"
+                            "experience enginnering"
+                            "This Test"
+                            "huuhuh"
+                            "j"
+                            "fff"
+                            "f"
+                            "dre"
+                            "i"
+                            "Doctor Who"
+                        )
 
-                            rm -rf "${GRAFANA_BACKUP_DIR}"
-                            mkdir -p "${GRAFANA_BACKUP_DIR}"
+                        echo "Starting Grafana dashboard backup..."
+                        echo "Will only back up dashboards from the predefined list of folders."
 
-                            sanitize_filename() {
-                                echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
-                            }
+                        # This command enables "mirror" mode by deleting the old backup directory.
+                        rm -rf "${GRAFANA_BACKUP_DIR}"
+                        mkdir -p "${GRAFANA_BACKUP_DIR}"
 
-                            ALL_FOLDERS=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/folders")
-                            declare -A FOLDER_MAP
+                        # A function to clean up titles to make them safe for use as filenames or directory names.
+                        sanitize() {
+                            echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
+                        }
 
-                            echo "${ALL_FOLDERS}" | ${JQ_CMD} -c '.[]' | while read -r folder; do
-                                FOLDER_TITLE=$(echo "${folder}" | ${JQ_CMD} -r '.title')
-                                FOLDER_UID=$(echo "${folder}" | ${JQ_CMD} -r '.uid')
-                                FOLDER_PATH=$(sanitize_filename "${FOLDER_TITLE}")
-                                FOLDER_MAP["${FOLDER_UID}"]="${FOLDER_PATH}"
-                            done
+                        # Fetches a list of metadata for all dashboards from the Grafana API.
+                        ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db")
 
-                            ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
+                        # Processes the list of dashboards one by one using a 'while' loop.
+                        echo "${ALL_DASHBOARDS_META}" | ${JQ_CMD} -c '.[]' | while read -r DASHBOARD_META_INFO; do
+                            DASHBOARD_UID=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.uid')
+                            DASHBOARD_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.title')
+                            
+                            GRAFANA_FOLDER_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.folderTitle // empty')
 
-                            echo "${ALL_DASHBOARDS_META}" | ${JQ_CMD} -c '.[]' | while read -r DASHBOARD_META_INFO; do
-                                DASHBOARD_UID=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.uid')
-                                DASHBOARD_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.title')
-                                FOLDER_UID=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.folderUid // empty')
-
-                                if [ -n "${FOLDER_UID}" ] && [[ -v FOLDER_MAP["${FOLDER_UID}"] ]]; then
-                                    FOLDER_PATH="${FOLDER_MAP["${FOLDER_UID}"]}"
-                                else
-                                    FOLDER_PATH="General"
-                                fi
-
-                                # Skip dashboards not in the 'playground' folder or its subfolders
-                                if [[ "${FOLDER_PATH}" != "playground" && "${FOLDER_PATH}" != playground/* ]]; then
-                                    echo "Skipping dashboard '${DASHBOARD_TITLE}' in folder '${FOLDER_PATH}'"
-                                    continue
-                                fi
-
-                                SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
-                                SAVE_DIR="${GRAFANA_BACKUP_DIR}/${FOLDER_PATH}"
-                                mkdir -p "${SAVE_DIR}"
-
-                                filename="${SANITIZED_DASH_TITLE}.json"
-                                filepath="${SAVE_DIR}/${filename}"
-
-                                DASHBOARD_DATA=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/dashboards/uid/${DASHBOARD_UID}")
-                                
-                                if [ -n "${DASHBOARD_DATA}" ] && [ "$(${JQ_CMD} -r '.dashboard.title' <<< "${DASHBOARD_DATA}")" != "null" ]; then
-                                    echo "${DASHBOARD_DATA}" | ${JQ_CMD} -r '.dashboard' > "${filepath}"
-                                    echo "Saved: ${filepath}"
+                            # Check if the dashboard's folder is in our list of folders to back up.
+                            folder_in_list=false
+                            for folder in "${FOLDERS_TO_BACKUP[@]}"; do
+                                if [[ "$folder" == "${GRAFANA_FOLDER_TITLE}" ]]; then
+                                    folder_in_list=true
+                                    break
                                 fi
                             done
 
-                            echo "Backup complete!"
+                            if [ "$folder_in_list" = false ]; then
+                                echo "Skipping dashboard '${DASHBOARD_TITLE}' because its folder '${GRAFANA_FOLDER_TITLE}' is not in the backup list."
+                                continue
+                            fi
+
+                            # If the folder is in the list, proceed with the backup.
+                            SANITIZED_FOLDER_NAME=$(sanitize "${GRAFANA_FOLDER_TITLE}")
+                            CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${SANITIZED_FOLDER_NAME}"
+                            mkdir -p "${CURRENT_SAVE_DIR}"
+
+                            SANITIZED_DASH_TITLE=$(sanitize "${DASHBOARD_TITLE}")
+                            filename="${SANITIZED_DASH_TITLE}.json"
+                            filepath="${CURRENT_SAVE_DIR}/${filename}"
+
+                            echo "Backing up dashboard '${DASHBOARD_TITLE}' from folder '${GRAFANA_FOLDER_TITLE}' to '${filepath}'"
+
+                            DASHBOARD_DATA=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/dashboards/uid/${DASHBOARD_UID}")
+                            
+                            if [ -n "${DASHBOARD_DATA}" ] && [ "$(${JQ_CMD} -r '.dashboard.title' <<< "${DASHBOARD_DATA}")" != "null" ]; then
+                                echo "${DASHBOARD_DATA}" | ${JQ_CMD} -r '.dashboard' > "${filepath}"
+                            fi
+                        done
+
+                        echo "Backup complete."
                     '''
 
                     writeFile(file: 'run_grafana_backup.sh', text: grafanaBackupScriptContent)
@@ -109,13 +136,14 @@ pipeline {
             }
         }
 
+        // Stage to commit and push changes
         stage('Commit and Push Changes to Git') {
             when {
                 branch 'master'
             }
             steps {
                 script {
-                    sh "git config user.email 'jenkins@test.com'"
+                    sh "git config user.email 'jenkins@example.com'"
                     sh "git config user.name 'Jenkins Automated Backup'"
                     sh "git add --all ${env.GRAFANA_BACKUP_DIR}"
 
@@ -123,6 +151,7 @@ pipeline {
                     
                     if (changes != 0) {
                         sh 'git commit -m "Grafana Dashboards Backup - $(date +%Y-%m-%d_%H-%M-%S)"'
+                        
                         withCredentials([string(credentialsId: 'github-creds1', variable: 'GIT_PAT')]) {
                             sh '''
                                 git remote set-url origin https://github.com/joe06031990/test
@@ -139,6 +168,7 @@ pipeline {
         }
     }
 
+    // Post-build actions
     post {
         always {
             cleanWs()
