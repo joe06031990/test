@@ -46,42 +46,16 @@ pipeline {
                             echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
                         }
 
-                        # Get all folders
+                        # Get all folders (flat structure in Grafana)
                         ALL_FOLDERS=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/folders")
-
-                        # Build UID to title and parentUid mappings
                         declare -A UID_TO_TITLE
-                        declare -A UID_TO_PARENT
 
                         echo "${ALL_FOLDERS}" | ${JQ_CMD} -c '.[]' | while read -r folder; do
                             uid=$(echo "$folder" | ${JQ_CMD} -r '.uid')
                             title=$(echo "$folder" | ${JQ_CMD} -r '.title')
-                            parent=$(echo "$folder" | ${JQ_CMD} -r '.parentUid // ""')
                             echo "UID_TO_TITLE[\\"$uid\\"]=\\"$title\\"" >> /tmp/folder_title.sh
-                            echo "UID_TO_PARENT[\\"$uid\\"]=\\"$parent\\"" >> /tmp/folder_parent.sh
                         done
-
                         source /tmp/folder_title.sh
-                        source /tmp/folder_parent.sh
-
-                        # Build full folder paths from UID
-                        declare -A UID_TO_FULL_PATH
-
-                        build_full_path() {
-                            local uid=$1
-                            local title=${UID_TO_TITLE[$uid]}
-                            local parent=${UID_TO_PARENT[$uid]}
-                            if [ -n "$parent" ] && [ -n "${UID_TO_TITLE[$parent]}" ]; then
-                                local parent_path=$(build_full_path "$parent")
-                                echo "${parent_path}/${title}"
-                            else
-                                echo "$title"
-                            fi
-                        }
-
-                        for uid in "${!UID_TO_TITLE[@]}"; do
-                            UID_TO_FULL_PATH[$uid]=$(build_full_path $uid)
-                        done
 
                         ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
 
@@ -90,23 +64,22 @@ pipeline {
                         echo "${ALL_DASHBOARDS_META}" | ${JQ_CMD} -c '.[]' | while read -r DASHBOARD_META_INFO; do
                             DASHBOARD_UID=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.uid')
                             DASHBOARD_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.title')
-                            FOLDER_UID=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.folderUid // ""')
-                            FOLDER_PATH="General"
-
-                            if [ -n "$FOLDER_UID" ] && [ -n "${UID_TO_FULL_PATH[$FOLDER_UID]}" ]; then
-                                FOLDER_PATH="${UID_TO_FULL_PATH[$FOLDER_UID]}"
-                            fi
-
-                            if [[ "$FOLDER_PATH" != playground* ]]; then
-                                echo "Skipping dashboard '${DASHBOARD_TITLE}' in folder '${FOLDER_PATH}'"
-                                continue
-                            fi
+                            FOLDER_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.folderTitle // "General"')
 
                             if [[ "${PROCESSED_DASHBOARD_UIDS}" == *"${DASHBOARD_UID}"* ]]; then
                                 continue
                             fi
 
-                            TARGET_GIT_RELATIVE_PATH=$(sanitize_filename "${FOLDER_PATH}")
+                            # Normalize folder title (lowercase)
+                            FOLDER_TITLE_LOWER=$(echo "$FOLDER_TITLE" | tr '[:upper:]' '[:lower:]')
+
+                            # Only back up dashboards in "playground" or subfolders like "playground/dev"
+                            if [[ "$FOLDER_TITLE_LOWER" != "playground" && "$FOLDER_TITLE_LOWER" != playground/* ]]; then
+                                echo "Skipping dashboard '${DASHBOARD_TITLE}' in folder '${FOLDER_TITLE}'"
+                                continue
+                            fi
+
+                            TARGET_GIT_RELATIVE_PATH=$(sanitize_filename "${FOLDER_TITLE}")
                             SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
                             CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${TARGET_GIT_RELATIVE_PATH}"
                             mkdir -p "${CURRENT_SAVE_DIR}"
@@ -123,9 +96,9 @@ pipeline {
                             fi
                         done
 
-                        rm -f /tmp/folder_title.sh /tmp/folder_parent.sh
+                        rm -f /tmp/folder_title.sh
 
-                        echo "Backup complete for 'playground' folder and its subfolders."
+                        echo "✅ Backup complete: only playground dashboards and subfolders included."
                     '''
 
                     writeFile(file: 'run_grafana_backup.sh', text: grafanaBackupScriptContent)
