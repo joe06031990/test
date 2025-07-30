@@ -40,120 +40,85 @@ pipeline {
                 script {
                     // A multiline string variable in Groovy that holds the entire bash script.
                     def grafanaBackupScriptContent = '''#!/bin/bash
-                            # 'set -e' ensures the script will exit immediately if a command fails.
                             set -e
-                            # 'set -x' prints each command to the log before it is executed, useful for debugging.
                             set -x
 
-                            CURL_CMD="/usr/bin/curl"
-                            JQ_CMD="/usr/bin/jq"
-                            
-                            # Define the single root folder you want to back up.
-                            PLAYGROUND_FOLDER_TITLE="playground"
+                            # --- CONFIGURATION ---
+                            TARGET_ROOT_FOLDER="playground"
+                            # ---------------------
 
-                            # Sanity checks to ensure required tools and variables are present.
-                            if [ ! -f "${CURL_CMD}" ]; then
-                                echo "Error: 'curl' not found at ${CURL_CMD}. Please install it."
-                                exit 1
-                            fi
-                            if [ ! -f "${JQ_CMD}" ]; then
-                                echo "Error: 'jq' not found at ${JQ_CMD}. Please install it."
-                                exit 1
-                            fi
-                            if [ -z "${GRAFANA_URL}" ] || [ -z "${GRAFANA_API_KEY}" ] || [ -z "${GRAFANA_BACKUP_DIR}" ]; then
-                                echo "Missing required environment variables."
-                                exit 1
-                            fi
-                            
-                            echo "Starting targeted Grafana dashboard backup..."
-                            echo "Target root folder: '${PLAYGROUND_FOLDER_TITLE}'"
+                            # A function to clean up folder/dashboard titles to make them safe for use as filenames.
+                            sanitize_filename() {
+                                echo "$1" | sed -e 's/[^a-zA-Z0-9._-]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//'
+                            }
 
-                            # This command enables "mirror" mode by deleting the old backup directory.
+                            # 1. Fetch all folders from Grafana
+                            echo "Fetching all folders to identify target and build path map..."
+                            ALL_FOLDERS_JSON=$(curl -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/folders")
+                            if [ -z "${ALL_FOLDERS_JSON}" ]; then
+                                echo "Error: Failed to fetch folders from Grafana. Check URL and API Key."
+                                exit 1
+                            fi
+
+                            # 2. Find the ID and UID of our target root folder
+                            TARGET_FOLDER_INFO=$(echo "${ALL_FOLDERS_JSON}" | jq -c --arg title "${TARGET_ROOT_FOLDER}" '.[] | select(.title==$title)')
+                            if [ -z "${TARGET_FOLDER_INFO}" ]; then
+                                echo "Error: Could not find the target root folder '${TARGET_ROOT_FOLDER}' in Grafana."
+                                exit 1
+                            fi
+                            TARGET_FOLDER_ID=$(echo "${TARGET_FOLDER_INFO}" | jq -r '.id')
+                            TARGET_FOLDER_UID=$(echo "${TARGET_FOLDER_INFO}" | jq -r '.uid')
+                            echo "Found target folder '${TARGET_ROOT_FOLDER}' (ID: ${TARGET_FOLDER_ID}, UID: ${TARGET_FOLDER_UID})"
+
+                            # 3. Create lookup maps for all folders to reconstruct paths later
+                            declare -A FOLDER_UID_TO_TITLE
+                            declare -A FOLDER_UID_TO_PARENT_UID
+                            echo "${ALL_FOLDERS_JSON}" | jq -c '.[]' | while read -r folder; do
+                                local uid=$(echo "$folder" | jq -r '.uid')
+                                FOLDER_UID_TO_TITLE[$uid]=$(echo "$folder" | jq -r '.title')
+                                FOLDER_UID_TO_PARENT_UID[$uid]=$(echo "$folder" | jq -r '.parentUid // empty')
+                            done
+
+                            # 4. Fetch dashboards ONLY from the target folder and its children
+                            echo "Fetching dashboards from within '${TARGET_ROOT_FOLDER}'..."
+                            DASHBOARDS_JSON=$(curl -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&folderIds=${TARGET_FOLDER_ID}")
+                            
+                            DASHBOARD_COUNT=$(echo "${DASHBOARDS_JSON}" | jq 'length')
+                            if [ "${DASHBOARD_COUNT}" -eq 0 ]; then
+                                echo "Warning: Found 0 dashboards in the '${TARGET_ROOT_FOLDER}' folder. Nothing to back up. Please ensure your dashboards are in the correct folder in the Grafana UI."
+                                # We don't exit here, just let the script finish with "No changes"
+                            else
+                                echo "Found ${DASHBOARD_COUNT} dashboards to process."
+                            fi
+
+                            # 5. Clean and prepare the backup directory
                             rm -rf "${GRAFANA_BACKUP_DIR}"
                             mkdir -p "${GRAFANA_BACKUP_DIR}"
 
-                            # Fetch all folders to find the ID of our target folder
-                            ALL_FOLDERS=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/folders")
-                            
-                            # Use jq to extract the integer ID of the target folder
-                            TARGET_FOLDER_ID=$(echo "${ALL_FOLDERS}" | ${JQ_CMD} -r --arg title "${PLAYGROUND_FOLDER_TITLE}" '.[] | select(.title==$title) | .id')
+                            # 6. Process each dashboard
+                            echo "${DASHBOARDS_JSON}" | jq -c '.[]' | while read -r dashboard; do
+                                local dash_uid=$(echo "$dashboard" | jq -r '.uid')
+                                local dash_title=$(echo "$dashboard" | jq -r '.title')
+                                local folder_uid=$(echo "$dashboard" | jq -r '.folderUid')
+                                
+                                # Reconstruct the relative path from the subfolder to our target root
+                                local current_uid="$folder_uid"
+                                local relative_path=""
+                                while [[ -n "$current_uid" && "$current_uid" != "$TARGET_FOLDER_UID" ]]; do
+                                    local folder_title="${FOLDER_UID_TO_TITLE[$current_uid]}"
+                                    relative_path="$(sanitize_filename "${folder_title}")/${relative_path}"
+                                    current_uid="${FOLDER_UID_TO_PARENT_UID[$current_uid]}"
+                                done
 
-                            if [ -z "${TARGET_FOLDER_ID}" ]; then
-                                echo "Error: Could not find a Grafana folder named '${PLAYGROUND_FOLDER_TITLE}'. Please ensure it exists."
-                                exit 1
-                            fi
-                            echo "Found target folder '${PLAYGROUND_FOLDER_TITLE}' with ID: ${TARGET_FOLDER_ID}"
-
-                            # Fetch a list of dashboards ONLY from the target folder and its subfolders.
-                            ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&folderIds=${TARGET_FOLDER_ID}")
-
-                            # A function to clean up dashboard titles to make them safe for use as filenames.
-                            sanitize_filename() {
-                                echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
-                            }
-
-                            # The folder reconstruction logic remains important for subfolders.
-                            # We still build the full map to correctly place subfolder dashboards.
-                            declare -A FOLDER_PATH_MAP
-                            declare -A PARENT_LOOKUP
-                            echo "${ALL_FOLDERS}" | ${JQ_CMD} -c '.[]' | while read -r folder; do
-                                PARENT_LOOKUP[$(echo "${folder}" | ${JQ_CMD} -r '.uid')]=$(echo "${folder}" | ${JQ_CMD} -r '.title')
+                                # Create the final directory and save the file
+                                local save_dir="${GRAFANA_BACKUP_DIR}/${relative_path}"
+                                mkdir -p "${save_dir}"
+                                
+                                echo "Backing up '${dash_title}' to ${save_dir}"
+                                curl -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/dashboards/uid/${dash_uid}" | jq '.dashboard' > "${save_dir}/$(sanitize_filename "${dash_title}").json"
                             done
 
-                            # Recursive function to build the full path for a folder
-                            build_path() {
-                                local uid=$1
-                                local title=$(echo "${ALL_FOLDERS}" | ${JQ_CMD} -r --arg uid "$uid" '.[] | select(.uid==$uid) | .title')
-                                local parent_uid=$(echo "${ALL_FOLDERS}" | ${JQ_CMD} -r --arg uid "$uid" '.[] | select(.uid==$uid) | .parentUid // empty')
-                                
-                                if [ -n "$parent_uid" ] && [ -n "${PARENT_LOOKUP[$parent_uid]}" ]; then
-                                    local parent_path=$(build_path "$parent_uid")
-                                    echo "${parent_path}/$(sanitize_filename "${title}")"
-                                else
-                                    # For the root "playground" folder, we want an empty base path inside the backup dir
-                                    if [ "${title}" == "${PLAYGROUND_FOLDER_TITLE}" ]; then
-                                        echo ""
-                                    else
-                                        echo "$(sanitize_filename "${title}")"
-                                    fi
-                                fi
-                            }
-
-                            echo "${ALL_FOLDERS}" | ${JQ_CMD} -c '.[]' | while read -r folder; do
-                                FOLDER_UID=$(echo "$folder" | ${JQ_CMD} -r '.uid')
-                                FOLDER_PATH_MAP[$FOLDER_UID]=$(build_path "$FOLDER_UID")
-                            done
-
-                            # Process the pre-filtered list of dashboards
-                            echo "${ALL_DASHBOARDS_META}" | ${JQ_CMD} -c '.[]' | while read -r DASHBOARD_META_INFO; do
-                                DASHBOARD_UID=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.uid')
-                                DASHBOARD_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.title')
-                                FOLDER_UID=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.folderUid')
-
-                                RELATIVE_PATH="${FOLDER_PATH_MAP[$FOLDER_UID]}"
-                                
-                                # Create the full path for saving the file
-                                CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}"
-                                if [ -n "${RELATIVE_PATH}" ]; then
-                                    CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${RELATIVE_PATH}"
-                                fi
-                                mkdir -p "${CURRENT_SAVE_DIR}"
-
-                                SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
-                                filename="${SANITIZED_DASH_TITLE}.json"
-                                filepath="${CURRENT_SAVE_DIR}/${filename}"
-
-                                echo "Processing dashboard '${DASHBOARD_TITLE}' -> ${filepath}"
-                                
-                                DASHBOARD_DATA=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/dashboards/uid/${DASHBOARD_UID}")
-                                
-                                if [ -n "${DASHBOARD_DATA}" ] && [ "$(${JQ_CMD} -r '.dashboard.title' <<< "${DASHBOARD_DATA}")" != "null" ]; then
-                                    echo "${DASHBOARD_DATA}" | ${JQ_CMD} -r '.dashboard' > "${filepath}"
-                                    echo " Saved: ${filepath}"
-                                fi
-                            done
-
-                            echo "Backup of '${PLAYGROUND_FOLDER_TITLE}' folder and its subfolders is complete!"
+                            echo "Backup script finished."
                     '''
 
                     writeFile(file: 'run_grafana_backup.sh', text: grafanaBackupScriptContent)
