@@ -74,7 +74,7 @@ pipeline {
                             declare -A FOLDER_UID_TO_TITLE
                             declare -A FOLDER_UID_TO_PARENT_UID
                             echo "${ALL_FOLDERS_JSON}" | jq -c '.[]' | while read -r folder; do
-                                local uid=$(echo "$folder" | jq -r '.uid')
+                                uid=$(echo "$folder" | jq -r '.uid')
                                 FOLDER_UID_TO_TITLE[$uid]=$(echo "$folder" | jq -r '.title')
                                 FOLDER_UID_TO_PARENT_UID[$uid]=$(echo "$folder" | jq -r '.parentUid // empty')
                             done
@@ -97,21 +97,21 @@ pipeline {
 
                             # 6. Process each dashboard
                             echo "${DASHBOARDS_JSON}" | jq -c '.[]' | while read -r dashboard; do
-                                local dash_uid=$(echo "$dashboard" | jq -r '.uid')
-                                local dash_title=$(echo "$dashboard" | jq -r '.title')
-                                local folder_uid=$(echo "$dashboard" | jq -r '.folderUid')
+                                dash_uid=$(echo "$dashboard" | jq -r '.uid')
+                                dash_title=$(echo "$dashboard" | jq -r '.title')
+                                folder_uid=$(echo "$dashboard" | jq -r '.folderUid')
                                 
                                 # Reconstruct the relative path from the subfolder to our target root
-                                local current_uid="$folder_uid"
-                                local relative_path=""
+                                current_uid="$folder_uid"
+                                relative_path=""
                                 while [[ -n "$current_uid" && "$current_uid" != "$TARGET_FOLDER_UID" ]]; do
-                                    local folder_title="${FOLDER_UID_TO_TITLE[$current_uid]}"
+                                    folder_title="${FOLDER_UID_TO_TITLE[$current_uid]}"
                                     relative_path="$(sanitize_filename "${folder_title}")/${relative_path}"
                                     current_uid="${FOLDER_UID_TO_PARENT_UID[$current_uid]}"
                                 done
 
                                 # Create the final directory and save the file
-                                local save_dir="${GRAFANA_BACKUP_DIR}/${relative_path}"
+                                save_dir="${GRAFANA_BACKUP_DIR}/${relative_path}"
                                 mkdir -p "${save_dir}"
                                 
                                 echo "Backing up '${dash_title}' to ${save_dir}"
