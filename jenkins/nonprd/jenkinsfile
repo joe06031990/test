@@ -5,9 +5,8 @@ pipeline {
 
     // Sets up an automatic schedule for the pipeline to run.
     triggers {
-        // 'H/2 * * * *' means the job will run approximately every 2 minutes.
-        // Jenkins uses a hash ('H') to spread the load, so it's not exactly on the minute.
-        cron('H/2 * * * *')
+        // 'H/2 * * * *'' means the job will run approximately every  hour.
+        
     }
 
     // Defines environment variables that will be available throughout the pipeline.
@@ -76,21 +75,63 @@ pipeline {
                             echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
                         }
 
-                        # This map translates Grafana folder names to Git directory paths.
-                        declare -A GRAFANA_FOLDER_MAP
-                        GRAFANA_FOLDER_MAP["playground"]=""
-                        GRAFANA_FOLDER_MAP["engineering"]="engineering"
-                        GRAFANA_FOLDER_MAP["engineering1"]="engineering1"
-                        GRAFANA_FOLDER_MAP["experience enginnering"]="experience_engineering"
-                        GRAFANA_FOLDER_MAP["This Test"]="experience_engineering/This_Test"
-                        GRAFANA_FOLDER_MAP["huuhuh"]="huuhuh"
-                        GRAFANA_FOLDER_MAP["j"]="huuhuh/j"
-                        GRAFANA_FOLDER_MAP["fff"]="huuhuh/fff"
-                        GRAFANA_FOLDER_MAP["f"]="huuhuh/fff/f"
-                        GRAFANA_FOLDER_MAP["dre"]="huuhuh/fff/f/dre"
-                        GRAFANA_FOLDER_MAP["i"]="i"
-                        GRAFANA_FOLDER_MAP["Doctor Who"]="Doctor_Who"
+                        # ==================== AUTO-DISCOVERY SECTION ====================
+                        echo "🔍 Auto-discovering all folders from Grafana API..."
                         
+                        # Fetch all folders from Grafana API - THIS IS THE AUTO-DISCOVERY
+                        ALL_FOLDERS=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/folders")
+                        
+                        # Create dynamic folder mapping that preserves structure
+                        declare -A AUTO_FOLDER_MAP
+                        
+                        # Handle special root cases
+                        AUTO_FOLDER_MAP["playground"]=""          # Root playground dashboards
+                        AUTO_FOLDER_MAP["General"]=""             # Default folder dashboards
+                        
+                        # Build parent folder lookup table first
+                        declare -A PARENT_LOOKUP
+                        echo "${ALL_FOLDERS}" | ${JQ_CMD} -c '.[]' | while read -r folder; do
+                            FOLDER_TITLE=$(echo "${folder}" | ${JQ_CMD} -r '.title')
+                            FOLDER_UID=$(echo "${folder}" | ${JQ_CMD} -r '.uid')
+                            echo "PARENT_LOOKUP[\"${FOLDER_UID}\"]=\"${FOLDER_TITLE}\"" >> /tmp/parent_lookup.sh
+                        done
+                        
+                        # Load parent lookup
+                        source /tmp/parent_lookup.sh 2>/dev/null || true
+                        
+                        # Process each folder and create proper mappings
+                        echo "${ALL_FOLDERS}" | ${JQ_CMD} -c '.[]' | while read -r folder; do
+                            FOLDER_TITLE=$(echo "${folder}" | ${JQ_CMD} -r '.title')
+                            FOLDER_UID=$(echo "${folder}" | ${JQ_CMD} -r '.uid')
+                            PARENT_UID=$(echo "${folder}" | ${JQ_CMD} -r '.parentUid // empty')
+                            
+                            if [ -n "${PARENT_UID}" ] && [[ -v PARENT_LOOKUP["${PARENT_UID}"] ]]; then
+                                # This is a subfolder
+                                PARENT_TITLE="${PARENT_LOOKUP["${PARENT_UID}"]}"
+                                PARENT_SANITIZED=$(sanitize_filename "${PARENT_TITLE}")
+                                FOLDER_SANITIZED=$(sanitize_filename "${FOLDER_TITLE}")
+                                AUTO_PATH="${PARENT_SANITIZED}/${FOLDER_SANITIZED}"
+                                echo " Subfolder discovered: '${FOLDER_TITLE}' -> '${AUTO_PATH}'"
+                            else
+                                # This is a top-level folder
+                                AUTO_PATH=$(sanitize_filename "${FOLDER_TITLE}")
+                                echo " Top-level folder discovered: '${FOLDER_TITLE}' -> '${AUTO_PATH}'"
+                            fi
+                            
+                            # Store the mapping
+                            echo "AUTO_FOLDER_MAP[\"${FOLDER_TITLE}\"]=\"${AUTO_PATH}\"" >> /tmp/auto_folders.sh
+                        done
+                        
+                        # Load all auto-discovered mappings
+                        source /tmp/auto_folders.sh 2>/dev/null || true
+                        
+                        echo " Auto-discovery complete. Found ${#AUTO_FOLDER_MAP[@]} folder mappings"
+                        
+                        # Debug: Show all discovered mappings
+                        for folder in "${!AUTO_FOLDER_MAP[@]}"; do
+                            echo "   '${folder}' -> '${AUTO_FOLDER_MAP[$folder]}'"
+                        done
+                        # ================================================================
 
                         # Fetches a list of metadata for all dashboards from the Grafana API.
                         ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
@@ -107,12 +148,17 @@ pipeline {
                                 continue
                             fi
 
+                            # ==================== USING AUTO-DISCOVERED MAPPINGS ====================
                             TARGET_GIT_RELATIVE_PATH=""
-                            if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"] ]]; then
-                                TARGET_GIT_RELATIVE_PATH="${GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"]}"
+                            if [[ -v AUTO_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"] ]]; then
+                                TARGET_GIT_RELATIVE_PATH="${AUTO_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"]}"
+                                echo " Processing dashboard '${DASHBOARD_TITLE}' from folder '${CLEAN_FOLDER_TITLE}' -> '${TARGET_GIT_RELATIVE_PATH}'"
                             else
-                                continue
+                                # Fallback for unknown folders - auto-generate path
+                                TARGET_GIT_RELATIVE_PATH=$(sanitize_filename "${CLEAN_FOLDER_TITLE}")
+                                echo "  Unknown folder '${CLEAN_FOLDER_TITLE}' - auto-generating path '${TARGET_GIT_RELATIVE_PATH}'"
                             fi
+                            # =====================================================================
 
                             SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
                             CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}"
@@ -129,10 +175,14 @@ pipeline {
                             if [ -n "${DASHBOARD_DATA}" ] && [ "$(${JQ_CMD} -r '.dashboard.title' <<< "${DASHBOARD_DATA}")" != "null" ]; then
                                 echo "${DASHBOARD_DATA}" | ${JQ_CMD} -r '.dashboard' > "${filepath}"
                                 PROCESSED_DASHBOARD_UIDS="${PROCESSED_DASHBOARD_UIDS} ${DASHBOARD_UID}"
+                                echo " Saved: ${filepath}"
                             fi
                         done
 
-                        echo "Backup complete."
+                        # Cleanup temporary files
+                        rm -f /tmp/auto_folders.sh /tmp/parent_lookup.sh
+
+                        echo " Backup complete - all playground dashboards and subfolders processed!"
                     '''
 
                     writeFile(file: 'run_grafana_backup.sh', text: grafanaBackupScriptContent)
@@ -149,7 +199,7 @@ pipeline {
             }
             steps {
                 script {
-                    sh "git config user.email 'jenkins@example.com'"
+                    sh "git config user.email 'jenkins@test.com'"
                     sh "git config user.name 'Jenkins Automated Backup'"
                     // Use 'git add --all' to ensure deleted files are staged for commit.
                     sh "git add --all ${env.GRAFANA_BACKUP_DIR}"
