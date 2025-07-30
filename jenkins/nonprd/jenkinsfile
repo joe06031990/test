@@ -81,15 +81,16 @@ pipeline {
                         GRAFANA_FOLDER_MAP["playground"]=""
                         GRAFANA_FOLDER_MAP["engineering"]="engineering"
                         GRAFANA_FOLDER_MAP["engineering1"]="engineering1"
+                        GRAFANA_FOLDER_MAP["experience enginnering"]="experience_engineering"
+                        GRAFANA_FOLDER_MAP["This Test"]="experience_engineering/This_Test"
                         GRAFANA_FOLDER_MAP["huuhuh"]="huuhuh"
                         GRAFANA_FOLDER_MAP["j"]="huuhuh/j"
                         GRAFANA_FOLDER_MAP["fff"]="huuhuh/fff"
                         GRAFANA_FOLDER_MAP["f"]="huuhuh/fff/f"
                         GRAFANA_FOLDER_MAP["dre"]="huuhuh/fff/f/dre"
                         GRAFANA_FOLDER_MAP["i"]="i"
-                        GRAFANA_FOLDER_MAP["experience enginnering"]="experience_engineering"
                         GRAFANA_FOLDER_MAP["Doctor Who"]="Doctor_Who"
-                        GRAFANA_FOLDER_MAP["This Test"]="experience_engineering/This_Test"
+                        
 
                         # Fetches a list of metadata for all dashboards from the Grafana API.
                         ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
