@@ -78,6 +78,12 @@ pipeline {
                                     FOLDER_PATH="General"
                                 fi
 
+                                # Skip dashboards not in the 'playground' folder or its subfolders
+                                if [[ "${FOLDER_PATH}" != "playground" && "${FOLDER_PATH}" != playground/* ]]; then
+                                    echo "Skipping dashboard '${DASHBOARD_TITLE}' in folder '${FOLDER_PATH}'"
+                                    continue
+                                fi
+
                                 SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
                                 SAVE_DIR="${GRAFANA_BACKUP_DIR}/${FOLDER_PATH}"
                                 mkdir -p "${SAVE_DIR}"
