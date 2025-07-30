@@ -73,11 +73,14 @@ pipeline {
                             # 3. Create lookup maps for all folders to reconstruct paths later
                             declare -A FOLDER_UID_TO_TITLE
                             declare -A FOLDER_UID_TO_PARENT_UID
-                            echo "${ALL_FOLDERS_JSON}" | jq -c '.[]' | while read -r folder; do
+                            
+                            # FIX: Use process substitution `< <()` to prevent the while loop from running in a subshell, preserving the arrays.
+                            while read -r folder; do
                                 uid=$(echo "$folder" | jq -r '.uid')
                                 FOLDER_UID_TO_TITLE[$uid]=$(echo "$folder" | jq -r '.title')
                                 FOLDER_UID_TO_PARENT_UID[$uid]=$(echo "$folder" | jq -r '.parentUid // empty')
-                            done
+                            done < <(echo "${ALL_FOLDERS_JSON}" | jq -c '.[]')
+
 
                             # 4. Fetch dashboards ONLY from the target folder and its children
                             echo "Fetching dashboards from within '${TARGET_ROOT_FOLDER}'..."
@@ -86,7 +89,6 @@ pipeline {
                             DASHBOARD_COUNT=$(echo "${DASHBOARDS_JSON}" | jq 'length')
                             if [ "${DASHBOARD_COUNT}" -eq 0 ]; then
                                 echo "Warning: Found 0 dashboards in the '${TARGET_ROOT_FOLDER}' folder. Nothing to back up. Please ensure your dashboards are in the correct folder in the Grafana UI."
-                                # We don't exit here, just let the script finish with "No changes"
                             else
                                 echo "Found ${DASHBOARD_COUNT} dashboards to process."
                             fi
