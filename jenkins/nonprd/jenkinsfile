@@ -92,6 +92,7 @@ pipeline {
                         GRAFANA_FOLDER_MAP["Doctor Who"]="Doctor_Who"
                         GRAFANA_FOLDER_MAP["_test operations_"]="test_operations"
                         GRAFANA_FOLDER_MAP["IT and portfolio management - SS"]="it_and_portfolio_management-ss"
+                        GRAFANA_FOLDER_MAP["test-test"]="test-test"
                         
 
                         # Fetches a list of metadata for all dashboards from the Grafana API.
