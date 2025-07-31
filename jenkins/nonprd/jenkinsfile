@@ -1,9 +1,9 @@
 pipeline {
     agent any
 
-     triggers {
-     cron('H/2 * * * *')
-     }
+ triggers {
+    cron('H/2 * * * *')
+}
 
     environment {
         GRAFANA_API_KEY = credentials('GRAFANA_API_KEY')
