@@ -222,11 +222,12 @@ pipeline {
                         
                         withCredentials([string(credentialsId: 'github-creds1', variable: 'GIT_PAT')]) {
                             sh '''
-                                git remote set-url origin 
+                                # Configure Git to use a credential store file
                                 git config credential.helper store
-                                echo "https://${GIT_PAT}:@github.com" > ~/.git-credentials
+                                # Write the PAT to the store file in the correct format for github.com
+                                echo "https://x-access-token:${GIT_PAT}@github.com" > ~/.git-credentials
     
-                                # Push to whatever branch we're currently on
+                                # Push the changes to the current branch (HEAD)
                                 git push origin HEAD
                             '''
                         }
