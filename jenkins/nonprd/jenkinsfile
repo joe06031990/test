@@ -5,7 +5,7 @@ pipeline {
 
     // Sets up an automatic schedule for the pipeline to run.
     triggers {
-        // 'H * * * *' means the job will run approximately every  hour.
+        // 'H/2 * * * *' means the job will run approximately every 2 hours.
         cron('H/2 * * * *')
     }
 
@@ -33,6 +33,7 @@ pipeline {
         // This stage runs on any branch - no branch restrictions
         stage('Run Grafana Dashboard Backup') {
             steps {
+         
                 // A 'script' block allows for more complex Groovy code and logic.
                 script {
                     // A multiline string variable in Groovy that holds the entire bash script.
@@ -97,7 +98,9 @@ pipeline {
 
                         # This map translates Grafana folder names to Git directory paths.
                         declare -A GRAFANA_FOLDER_MAP
-
+                        
+                        # Added a mapping for the "General" folder (dashboards in root)
+                        GRAFANA_FOLDER_MAP["General"]="general"
                         GRAFANA_FOLDER_MAP["playground"]=""
                         GRAFANA_FOLDER_MAP["engineering"]="engineering"
                         GRAFANA_FOLDER_MAP["engineering1"]="engineering1"
@@ -120,8 +123,8 @@ pipeline {
                         PROCESSED_DASHBOARD_UIDS=""
 
                         # Process each dashboard from the JSON response
-                        # Use a simpler approach to split JSON objects
-                        echo "$ALL_DASHBOARDS_META" | tr ',' '\\n' | while IFS= read -r line; do
+                        echo "$ALL_DASHBOARDS_META" |
+                        tr ',' '\\n' | while IFS= read -r line; do
                             # Look for lines that contain uid to identify new dashboard objects
                             if echo "$line" | grep -q '"uid"'; then
                                 # Start building dashboard info - collect this and next few lines
@@ -130,8 +133,9 @@ pipeline {
                                 for i in {1..10}; do
                                     read -r next_line || break
                                     dashboard_info="$dashboard_info,$next_line"
-                                    # Stop when we have all the fields we need
-                                    if echo "$dashboard_info" | grep -q '"folderTitle"\\|"folderId"'; then
+                                    # MODIFIED: Stop when we find 'folderUrl', which is later in the object,
+                                    # ensuring we capture the folderTitle.
+                                    if echo "$dashboard_info" | grep -q '"folderUrl"'; then
                                         break
                                     fi
                                 done
@@ -153,7 +157,7 @@ pipeline {
                                 if [[ "${PROCESSED_DASHBOARD_UIDS}" == *"${DASHBOARD_UID}"* ]]; then
                                     continue
                                 fi
-
+                                
                                 # Check if folder is in our mapping
                                 TARGET_GIT_RELATIVE_PATH=""
                                 if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"] ]]; then
@@ -169,6 +173,7 @@ pipeline {
                                 if [ -n "${TARGET_GIT_RELATIVE_PATH}" ]; then
                                     CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${TARGET_GIT_RELATIVE_PATH}"
                                 fi
+                                
                                 mkdir -p "${CURRENT_SAVE_DIR}"
 
                                 filename="${SANITIZED_DASH_TITLE}.json"
@@ -217,9 +222,10 @@ pipeline {
                         
                         withCredentials([string(credentialsId: 'github-creds1', variable: 'GIT_PAT')]) {
                             sh '''
-                                git remote set-url origin https://github.com/joe06031990/test
+                                git remote set-url origin 
                                 git config credential.helper store
                                 echo "https://${GIT_PAT}:@github.com" > ~/.git-credentials
+    
                                 # Push to whatever branch we're currently on
                                 git push origin HEAD
                             '''
