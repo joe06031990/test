@@ -57,21 +57,16 @@ pipeline {
 
                         echo "Starting Grafana dashboard backup from ${GRAFANA_URL} to ${GRAFANA_BACKUP_DIR}"
 
-                        # This command enables "mirror" mode by deleting the old backup directory.
-                        # This ensures dashboards deleted in Grafana are also removed from Git.
                         rm -rf "${GRAFANA_BACKUP_DIR}"
                         mkdir -p "${GRAFANA_BACKUP_DIR}"
 
-                        # A function to clean up dashboard titles to make them safe for use as filenames.
                         sanitize_filename() {
                             echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
                         }
 
-                        # Function to extract JSON value using a simpler approach
                         extract_json_value() {
                             local json="$1"
                             local key="$2"
-                            # Use awk to extract JSON values - safer than grep with quotes
                             echo "$json" | awk -F'"' -v key="$key" '
                                 {
                                     for(i=1; i<=NF; i++) {
@@ -83,7 +78,6 @@ pipeline {
                                 }'
                         }
 
-                        # Function to extract JSON value that might be null
                         extract_json_value_with_default() {
                             local json="$1"
                             local key="$2"
@@ -99,8 +93,7 @@ pipeline {
                         # This map translates Grafana folder names to Git directory paths.
                         declare -A GRAFANA_FOLDER_MAP
                         
-                        # Added a mapping for the "General" folder (dashboards in root)
-                        GRAFANA_FOLDER_MAP["General"]="general"
+                    
                         GRAFANA_FOLDER_MAP["playground"]=""
                         GRAFANA_FOLDER_MAP["engineering"]="engineering"
                         GRAFANA_FOLDER_MAP["engineering1"]="engineering1"
@@ -120,77 +113,47 @@ pipeline {
                         # Fetches a list of metadata for all dashboards from the Grafana API.
                         ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
 
-                        PROCESSED_DASHBOARD_UIDS=""
-
-                        # Process each dashboard from the JSON response
-                        echo "$ALL_DASHBOARDS_META" |
-                        tr ',' '\\n' | while IFS= read -r line; do
-                            # Look for lines that contain uid to identify new dashboard objects
-                            if echo "$line" | grep -q '"uid"'; then
-                                # Start building dashboard info - collect this and next few lines
-                                dashboard_info="$line"
-                                # Read additional lines to get complete dashboard object
-                                for i in {1..10}; do
-                                    read -r next_line || break
-                                    dashboard_info="$dashboard_info,$next_line"
-                                    # MODIFIED: Stop when we find 'folderUrl', which is later in the object,
-                                    # ensuring we capture the folderTitle.
-                                    if echo "$dashboard_info" | grep -q '"folderUrl"'; then
-                                        break
-                                    fi
-                                done
-                                
-                                # Extract values from the collected dashboard info
-                                DASHBOARD_UID=$(extract_json_value "$dashboard_info" "uid")
-                                DASHBOARD_TITLE=$(extract_json_value "$dashboard_info" "title")
-                                CLEAN_FOLDER_TITLE=$(extract_json_value_with_default "$dashboard_info" "folderTitle" "General")
-                                
-                                # Skip if we couldn't extract required info
-                                if [ -z "$DASHBOARD_UID" ] || [ -z "$DASHBOARD_TITLE" ]; then
-                                    continue
-                                fi
+                        # A more robust way to loop through JSON array objects without jq
+                        # 1. Remove the opening and closing brackets of the array.
+                        # 2. Replace the object separator '},{' with a newline.
+                        echo "$ALL_DASHBOARDS_META" | sed 's/^\\[//;s/\\]$//' | sed 's/},{/}\\n{/g' | while IFS= read -r dashboard_info; do
                             
-                                # Clean up folder title
-                                CLEAN_FOLDER_TITLE=$(echo "$CLEAN_FOLDER_TITLE" | tr -d '\\n\\r\\t')
+                            DASHBOARD_UID=$(extract_json_value "$dashboard_info" "uid")
+                            DASHBOARD_TITLE=$(extract_json_value "$dashboard_info" "title")
+                            CLEAN_FOLDER_TITLE=$(extract_json_value_with_default "$dashboard_info" "folderTitle" "General")
+                            
+                            if [ -z "$DASHBOARD_UID" ] || [ -z "$DASHBOARD_TITLE" ]; then
+                                continue
+                            fi
+                        
+                            CLEAN_FOLDER_TITLE=$(echo "$CLEAN_FOLDER_TITLE" | tr -d '\\n\\r\\t')
 
-                                # Skip if we already processed this dashboard
-                                if [[ "${PROCESSED_DASHBOARD_UIDS}" == *"${DASHBOARD_UID}"* ]]; then
-                                    continue
-                                fi
-                                
-                                # Check if folder is in our mapping
-                                TARGET_GIT_RELATIVE_PATH=""
-                                if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"] ]]; then
-                                    TARGET_GIT_RELATIVE_PATH="${GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"]}"
-                                else
-                                    echo "Skipping dashboard in unmapped folder: ${CLEAN_FOLDER_TITLE}"
-                                    continue
-                                fi
+                            TARGET_GIT_RELATIVE_PATH=""
+                            if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"] ]]; then
+                                TARGET_GIT_RELATIVE_PATH="${GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"]}"
+                            else
+                                echo "Skipping dashboard in unmapped folder: ${CLEAN_FOLDER_TITLE}"
+                                continue
+                            fi
 
-                                # Prepare file path
-                                SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
-                                CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}"
-                                if [ -n "${TARGET_GIT_RELATIVE_PATH}" ]; then
-                                    CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${TARGET_GIT_RELATIVE_PATH}"
-                                fi
-                                
-                                mkdir -p "${CURRENT_SAVE_DIR}"
+                            SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
+                            CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}"
+                            if [ -n "${TARGET_GIT_RELATIVE_PATH}" ]; then
+                                CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${TARGET_GIT_RELATIVE_PATH}"
+                            fi
+                            
+                            mkdir -p "${CURRENT_SAVE_DIR}"
 
-                                filename="${SANITIZED_DASH_TITLE}.json"
-                                filepath="${CURRENT_SAVE_DIR}/${filename}"
+                            filename="${SANITIZED_DASH_TITLE}.json"
+                            filepath="${CURRENT_SAVE_DIR}/${filename}"
 
-                                # Fetch the full dashboard data
-                                DASHBOARD_DATA=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/dashboards/uid/${DASHBOARD_UID}")
-                                
-                                # Check if we got valid dashboard data
-                                if [ -n "${DASHBOARD_DATA}" ] && echo "${DASHBOARD_DATA}" | grep -q '"dashboard"'; then
-                                    # Save the complete response (contains dashboard and metadata)
-                                    echo "${DASHBOARD_DATA}" > "${filepath}"
-                                    PROCESSED_DASHBOARD_UIDS="${PROCESSED_DASHBOARD_UIDS} ${DASHBOARD_UID}"
-                                    echo "Backed up: ${DASHBOARD_TITLE} -> ${filepath}"
-                                else
-                                    echo "Failed to backup dashboard: ${DASHBOARD_TITLE}"
-                                fi
+                            DASHBOARD_DATA=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/dashboards/uid/${DASHBOARD_UID}")
+                            
+                            if [ -n "${DASHBOARD_DATA}" ] && echo "${DASHBOARD_DATA}" | grep -q '"dashboard"'; then
+                                echo "${DASHBOARD_DATA}" > "${filepath}"
+                                echo "Backed up: ${DASHBOARD_TITLE} -> ${filepath}"
+                            else
+                                echo "Failed to backup dashboard: ${DASHBOARD_TITLE}"
                             fi
                         done
 
