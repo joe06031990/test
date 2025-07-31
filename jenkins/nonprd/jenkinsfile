@@ -222,3 +222,7 @@ pipeline {
         // 'always' means this action will run regardless of whether the pipeline succeeded or failed.
         always {
             // 'cleanWs' deletes all files from the workspace, ensuring a clean start for the next run.
+            cleanWs()
+        }
+    }
+}
