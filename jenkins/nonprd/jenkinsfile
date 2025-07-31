@@ -227,8 +227,8 @@ pipeline {
                                 # Write the PAT to the store file in the correct format for github.com
                                 echo "https://x-access-token:${GIT_PAT}@github.com" > ~/.git-credentials
     
-                                # Push the changes to the current branch (HEAD)
-                                git push origin HEAD
+                                # Push the current commit (HEAD) to the branch it was checked out from
+                                git push origin HEAD:$GIT_BRANCH
                             '''
                         }
                     } else {
