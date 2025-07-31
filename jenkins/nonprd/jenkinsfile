@@ -109,6 +109,7 @@ pipeline {
                         GRAFANA_FOLDER_MAP["_test operations_"]="test_operations"
                         GRAFANA_FOLDER_MAP["IT and portfolio management - SS"]="it_and_portfolio_management-ss"
                         GRAFANA_FOLDER_MAP["test-test"]="test-test"
+                        GRAFANA_FOLDER_MAP["zz"]="zz"
 
                         # Fetches a list of metadata for all dashboards from the Grafana API.
                         ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
