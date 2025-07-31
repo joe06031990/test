@@ -1,39 +1,52 @@
+// Defines the start of a declarative Jenkins pipeline.
 pipeline {
+    // Specifies that the pipeline can run on any available Jenkins agent.
     agent any
 
+    // Sets up an automatic schedule for the pipeline to run.
+    triggers {
+        // 'H * * * *' means the job will run approximately every  hour.
+        cron('H/2 * * * *')
+    }
+
+    // Defines environment variables that will be available throughout the pipeline.
     environment {
+        // Securely loads the Grafana API key from Jenkins credentials.
         GRAFANA_API_KEY = credentials('GRAFANA_API_KEY')
+        // The URL of your Grafana instance.
         GRAFANA_URL = "https://jstest2025.grafana.net"
+        // The name of the root directory where backups will be stored in the Git repository.
         GRAFANA_BACKUP_DIR = "playground_nonprd"
     }
 
+    // Contains all the main work stages of the pipeline.
     stages {
+        // The first stage: responsible for checking out code from your Git repository.
         stage('Checkout Git Repository') {
             steps {
-                checkout([$class: 'GitSCM', branches: [[name: '*/master']],
-                          userRemoteConfigs: [[credentialsId: 'github-creds1', url: 'https://github.com/joe06031990/test']]])
+                // The 'checkout' step clones or updates the specified Git repository and branch.
+                // Uses 'scm' to automatically checkout the branch that triggered this build
+                checkout scm
             }
         }
 
+        // This stage runs on any branch - no branch restrictions
         stage('Run Grafana Dashboard Backup') {
-            when {
-                branch 'master'
-            }
             steps {
+                // A 'script' block allows for more complex Groovy code and logic.
                 script {
+                    // A multiline string variable in Groovy that holds the entire bash script.
                     def grafanaBackupScriptContent = '''#!/bin/bash
+                        # 'set -e' ensures the script will exit immediately if a command fails.
                         set -e
+                        # 'set -x' prints each command to the log before it is executed, useful for debugging.
                         set -x
-
+                        
                         CURL_CMD="/usr/bin/curl"
-                        JQ_CMD="/usr/bin/jq"
 
+                        # Sanity checks to ensure required tools and variables are present.
                         if [ ! -f "${CURL_CMD}" ]; then
                             echo "Error: 'curl' not found at ${CURL_CMD}. Please install it."
-                            exit 1
-                        fi
-                        if [ ! -f "${JQ_CMD}" ]; then
-                            echo "Error: 'jq' not found at ${JQ_CMD}. Please install it."
                             exit 1
                         fi
                         if [ -z "${GRAFANA_URL}" ] || [ -z "${GRAFANA_API_KEY}" ] || [ -z "${GRAFANA_BACKUP_DIR}" ]; then
@@ -43,77 +56,140 @@ pipeline {
 
                         echo "Starting Grafana dashboard backup from ${GRAFANA_URL} to ${GRAFANA_BACKUP_DIR}"
 
+                        # This command enables "mirror" mode by deleting the old backup directory.
+                        # This ensures dashboards deleted in Grafana are also removed from Git.
                         rm -rf "${GRAFANA_BACKUP_DIR}"
                         mkdir -p "${GRAFANA_BACKUP_DIR}"
 
+                        # A function to clean up dashboard titles to make them safe for use as filenames.
                         sanitize_filename() {
                             echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
                         }
 
-                        # Fetch all folders and build a UID->path map
-                        ALL_FOLDERS=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/folders")
-                        echo "${ALL_FOLDERS}" | ${JQ_CMD} -r '.[] | [.uid, .title, (.parentUid // "")] | @tsv' > /tmp/folders.tsv
-
-                        declare -A FOLDER_PATHS
-
-                        # First, map all folders by UID
-                        while IFS=$'\\t' read -r uid title parent; do
-                            FOLDER_PATHS["$uid"]="$title"
-                        done < /tmp/folders.tsv
-
-                        # Now, recursively build full paths
-                        get_full_path() {
-                            local uid="$1"
-                            local path=""
-                            while [ -n "$uid" ]; do
-                                local line
-                                line=$(grep "^$uid\\t" /tmp/folders.tsv)
-                                local title parent
-                                title=$(echo "$line" | cut -f2)
-                                parent=$(echo "$line" | cut -f3)
-                                path="/$title$path"
-                                uid="$parent"
-                            done
-                            echo "$path"
+                        # Function to extract JSON value using a simpler approach
+                        extract_json_value() {
+                            local json="$1"
+                            local key="$2"
+                            # Use awk to extract JSON values - safer than grep with quotes
+                            echo "$json" | awk -F'"' -v key="$key" '
+                                {
+                                    for(i=1; i<=NF; i++) {
+                                        if($i == key && $(i+1) == ":") {
+                                            print $(i+2)
+                                            break
+                                        }
+                                    }
+                                }'
                         }
 
-                        # Fetch dashboards
+                        # Function to extract JSON value that might be null
+                        extract_json_value_with_default() {
+                            local json="$1"
+                            local key="$2"
+                            local default="$3"
+                            local value=$(extract_json_value "$json" "$key")
+                            if [ -z "$value" ] || [ "$value" = "null" ]; then
+                                echo "$default"
+                            else
+                                echo "$value"
+                            fi
+                        }
+
+                        # This map translates Grafana folder names to Git directory paths.
+                        declare -A GRAFANA_FOLDER_MAP
+
+                        GRAFANA_FOLDER_MAP["playground"]=""
+                        GRAFANA_FOLDER_MAP["engineering"]="engineering"
+                        GRAFANA_FOLDER_MAP["engineering1"]="engineering1"
+                        GRAFANA_FOLDER_MAP["experience enginnering"]="experience_engineering"
+                        GRAFANA_FOLDER_MAP["This Test"]="experience_engineering/This_Test"
+                        GRAFANA_FOLDER_MAP["huuhuh"]="huuhuh"
+                        GRAFANA_FOLDER_MAP["j"]="huuhuh/j"
+                        GRAFANA_FOLDER_MAP["fff"]="huuhuh/fff"
+                        GRAFANA_FOLDER_MAP["f"]="huuhuh/fff/f"
+                        GRAFANA_FOLDER_MAP["dre"]="huuhuh/fff/f/dre"
+                        GRAFANA_FOLDER_MAP["i"]="i"
+                        GRAFANA_FOLDER_MAP["Doctor Who"]="Doctor_Who"
+                        GRAFANA_FOLDER_MAP["_test operations_"]="test_operations"
+                        GRAFANA_FOLDER_MAP["IT and portfolio management - SS"]="it_and_portfolio_management-ss"
+                        GRAFANA_FOLDER_MAP["test-test"]="test-test"
+
+                        # Fetches a list of metadata for all dashboards from the Grafana API.
                         ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
 
-                        echo "${ALL_DASHBOARDS_META}" | ${JQ_CMD} -c '.[]' | while read -r DASHBOARD_META_INFO; do
-                            DASHBOARD_UID=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.uid')
-                            DASHBOARD_TITLE=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.title')
-                            FOLDER_UID=$(echo "${DASHBOARD_META_INFO}" | ${JQ_CMD} -r '.folderUid // empty')
+                        PROCESSED_DASHBOARD_UIDS=""
 
-                            # Build the full folder path
-                            if [ -n "$FOLDER_UID" ]; then
-                                FULL_PATH=$(get_full_path "$FOLDER_UID" | sed 's|^/||')
-                            else
-                                FULL_PATH="General"
-                            fi
+                        # Process each dashboard from the JSON response
+                        # Use a simpler approach to split JSON objects
+                        echo "$ALL_DASHBOARDS_META" | tr ',' '\\n' | while IFS= read -r line; do
+                            # Look for lines that contain uid to identify new dashboard objects
+                            if echo "$line" | grep -q '"uid"'; then
+                                # Start building dashboard info - collect this and next few lines
+                                dashboard_info="$line"
+                                # Read additional lines to get complete dashboard object
+                                for i in {1..10}; do
+                                    read -r next_line || break
+                                    dashboard_info="$dashboard_info,$next_line"
+                                    # Stop when we have all the fields we need
+                                    if echo "$dashboard_info" | grep -q '"folderTitle"\\|"folderId"'; then
+                                        break
+                                    fi
+                                done
+                                
+                                # Extract values from the collected dashboard info
+                                DASHBOARD_UID=$(extract_json_value "$dashboard_info" "uid")
+                                DASHBOARD_TITLE=$(extract_json_value "$dashboard_info" "title")
+                                CLEAN_FOLDER_TITLE=$(extract_json_value_with_default "$dashboard_info" "folderTitle" "General")
+                                
+                                # Skip if we couldn't extract required info
+                                if [ -z "$DASHBOARD_UID" ] || [ -z "$DASHBOARD_TITLE" ]; then
+                                    continue
+                                fi
+                            
+                                # Clean up folder title
+                                CLEAN_FOLDER_TITLE=$(echo "$CLEAN_FOLDER_TITLE" | tr -d '\\n\\r\\t')
 
-                            # Only process dashboards in playground or its subfolders
-                            if [[ "$FULL_PATH" != playground* ]]; then
-                                echo "Skipping dashboard '${DASHBOARD_TITLE}' in folder '${FULL_PATH}'"
-                                continue
-                            fi
+                                # Skip if we already processed this dashboard
+                                if [[ "${PROCESSED_DASHBOARD_UIDS}" == *"${DASHBOARD_UID}"* ]]; then
+                                    continue
+                                fi
 
-                            SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
-                            SAVE_DIR="${GRAFANA_BACKUP_DIR}/${FULL_PATH}"
-                            mkdir -p "${SAVE_DIR}"
+                                # Check if folder is in our mapping
+                                TARGET_GIT_RELATIVE_PATH=""
+                                if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"] ]]; then
+                                    TARGET_GIT_RELATIVE_PATH="${GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"]}"
+                                else
+                                    echo "Skipping dashboard in unmapped folder: ${CLEAN_FOLDER_TITLE}"
+                                    continue
+                                fi
 
-                            filename="${SANITIZED_DASH_TITLE}.json"
-                            filepath="${SAVE_DIR}/${filename}"
+                                # Prepare file path
+                                SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
+                                CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}"
+                                if [ -n "${TARGET_GIT_RELATIVE_PATH}" ]; then
+                                    CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${TARGET_GIT_RELATIVE_PATH}"
+                                fi
+                                mkdir -p "${CURRENT_SAVE_DIR}"
 
-                            DASHBOARD_DATA=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/dashboards/uid/${DASHBOARD_UID}")
-                            if [ -n "${DASHBOARD_DATA}" ] && [ "$(${JQ_CMD} -r '.dashboard.title' <<< "${DASHBOARD_DATA}")" != "null" ]; then
-                                echo "${DASHBOARD_DATA}" | ${JQ_CMD} -r '.dashboard' > "${filepath}"
-                                echo " Saved: ${filepath}"
+                                filename="${SANITIZED_DASH_TITLE}.json"
+                                filepath="${CURRENT_SAVE_DIR}/${filename}"
+
+                                # Fetch the full dashboard data
+                                DASHBOARD_DATA=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/dashboards/uid/${DASHBOARD_UID}")
+                                
+                                # Check if we got valid dashboard data
+                                if [ -n "${DASHBOARD_DATA}" ] && echo "${DASHBOARD_DATA}" | grep -q '"dashboard"'; then
+                                    # Save the complete response (contains dashboard and metadata)
+                                    echo "${DASHBOARD_DATA}" > "${filepath}"
+                                    PROCESSED_DASHBOARD_UIDS="${PROCESSED_DASHBOARD_UIDS} ${DASHBOARD_UID}"
+                                    echo "Backed up: ${DASHBOARD_TITLE} -> ${filepath}"
+                                else
+                                    echo "Failed to backup dashboard: ${DASHBOARD_TITLE}"
+                                fi
                             fi
                         done
 
-                        rm -f /tmp/folders.tsv
-                        echo "Backup complete!"
+                        echo "Backup complete."
                     '''
 
                     writeFile(file: 'run_grafana_backup.sh', text: grafanaBackupScriptContent)
@@ -123,26 +199,29 @@ pipeline {
             }
         }
 
+        // This stage runs on any branch - commits back to the same branch
         stage('Commit and Push Changes to Git') {
-            when {
-                branch 'master'
-            }
             steps {
                 script {
                     sh "git config user.email 'jenkins@test.com'"
                     sh "git config user.name 'Jenkins Automated Backup'"
+                    // Use 'git add --all' to ensure deleted files are staged for commit.
                     sh "git add --all ${env.GRAFANA_BACKUP_DIR}"
 
+                    // Checks if there are any actual changes to commit.
                     def changes = sh(returnStatus: true, script: "git diff-index --quiet HEAD -- ${env.GRAFANA_BACKUP_DIR}")
                     
                     if (changes != 0) {
+                        // This quoting allows the shell to correctly execute the 'date' command.
                         sh 'git commit -m "Grafana Dashboards Backup - $(date +%Y-%m-%d_%H-%M-%S)"'
+                        
                         withCredentials([string(credentialsId: 'github-creds1', variable: 'GIT_PAT')]) {
                             sh '''
                                 git remote set-url origin https://github.com/joe06031990/test
                                 git config credential.helper store
                                 echo "https://${GIT_PAT}:@github.com" > ~/.git-credentials
-                                git push origin HEAD:master
+                                # Push to whatever branch we're currently on
+                                git push origin HEAD
                             '''
                         }
                     } else {
@@ -153,9 +232,12 @@ pipeline {
         }
     }
 
+    // The 'post' section defines actions that run at the end of the pipeline.
     post {
+        // 'always' means this action will run regardless of whether the pipeline succeeded or failed.
         always {
-            cleanWs()
+            // Clean up workspace manually since cleanWs is not available
+            deleteDir()
         }
     }
 }
