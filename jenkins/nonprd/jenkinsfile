@@ -1,10 +1,9 @@
 pipeline {
     agent any
 
-    // Remove or uncomment the next block to enable scheduling
-    // triggers {
-    //     cron('H/2 * * * *')
-    // }
+     triggers {
+     cron('H/2 * * * *')
+     }
 
     environment {
         GRAFANA_API_KEY = credentials('GRAFANA_API_KEY')
