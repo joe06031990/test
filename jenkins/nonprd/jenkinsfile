@@ -1,4 +1,4 @@
-Defines the start of a declarative Jenkins pipeline.
+// Defines the start of a declarative Jenkins pipeline.
 pipeline {
     // Specifies that the pipeline can run on any available Jenkins agent.
     agent any
@@ -112,6 +112,7 @@ pipeline {
                         GRAFANA_FOLDER_MAP["zz"]="zz"
                         GRAFANA_FOLDER_MAP["Traefik Proxy"]="Traefik_Proxy"
                         
+                        
 
                         # Fetches a list of metadata for all dashboards from the Grafana API.
                         ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
@@ -183,6 +184,7 @@ pipeline {
                         // This quoting allows the shell to correctly execute the 'date' command.
                         sh 'git commit -m "Grafana Dashboards Backup - $(date +%Y-%m-%d_%H-%M-%S)"'
                         
+                        // CORRECTED: Removed extra single quote from credentialsId
                         withCredentials([string(credentialsId: 'github-creds1', variable: 'GIT_PAT')]) {
                             sh '''
                                 # Configure Git to use a credential store file
