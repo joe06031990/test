@@ -185,7 +185,7 @@ pipeline {
                         // This quoting allows the shell to correctly execute the 'date' command.
                         sh 'git commit -m "Grafana Dashboards Backup - $(date +%Y-%m-%d_%H-%M-%S)"'
                         
-                        withCredentials([string(credentialsId: 'github-creds1'', variable: 'GIT_PAT')]) {
+                        withCredentials([string(credentialsId: 'github-creds1', variable: 'GIT_PAT')]) {
                             sh '''
                                 # Configure Git to use a credential store file
                                 git config credential.helper store
