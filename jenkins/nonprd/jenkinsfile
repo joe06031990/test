@@ -130,6 +130,12 @@ pipeline {
                             fi
                         
                             CLEAN_FOLDER_TITLE=$(echo "$CLEAN_FOLDER_TITLE" | tr -d '\\n\\r\\t')
+                            
+                            # NEW: Trim leading/trailing whitespace to prevent matching errors.
+                            CLEAN_FOLDER_TITLE=$(echo "$CLEAN_FOLDER_TITLE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+                            # NEW: Diagnostic echo to see the exact key being used for the lookup.
+                            echo "DEBUG: Checking for folder title key: '[${CLEAN_FOLDER_TITLE}]'"
 
                             # *** CORRECTED LOGIC ***
                             # This block checks if the dashboard's folder is in our map.
