@@ -1,11 +1,11 @@
-// Defines the start of a declarative Jenkins pipeline.
+Defines the start of a declarative Jenkins pipeline.
 pipeline {
     // Specifies that the pipeline can run on any available Jenkins agent.
     agent any
 
     // Sets up an automatic schedule for the pipeline to run.
     triggers {
-        // 'H * * * *' means the job will run approximately every  hour.
+        // 'H * * * *' means the job will run approximately every hour.
         cron('H * * * *')
     }
 
@@ -33,7 +33,7 @@ pipeline {
         // This stage runs on any branch - no branch restrictions
         stage('Run Grafana Dashboard Backup') {
             steps {
-         
+        
                 // A 'script' block allows for more complex Groovy code and logic.
                 script {
                     // A multiline string variable in Groovy that holds the entire bash script.
@@ -91,10 +91,10 @@ pipeline {
                         }
 
                         # This map translates Grafana folder names to Git directory paths.
+                        # ONLY folders listed here will be backed up.
                         declare -A GRAFANA_FOLDER_MAP
                         
-                    
-                          GRAFANA_FOLDER_MAP["Playground"]="Playground"
+                        GRAFANA_FOLDER_MAP["Playground"]="Playground"
                         GRAFANA_FOLDER_MAP["engineering"]="engineering"
                         GRAFANA_FOLDER_MAP["engineering1"]="engineering1"
                         GRAFANA_FOLDER_MAP["experience enginnering"]="experience_engineering"
@@ -111,13 +111,12 @@ pipeline {
                         GRAFANA_FOLDER_MAP["test-test"]="test-test"
                         GRAFANA_FOLDER_MAP["zz"]="zz"
                         GRAFANA_FOLDER_MAP["Traefik Proxy"]="Traefik_Proxy"
+                        
 
                         # Fetches a list of metadata for all dashboards from the Grafana API.
                         ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
 
-                        # A more robust way to loop through JSON array objects without jq
-                        # 1. Remove the opening and closing brackets of the array.
-                        # 2. Replace the object separator '},{' with a newline.
+                        # Loop through all dashboards found
                         echo "$ALL_DASHBOARDS_META" | sed 's/^\\[//;s/\\]$//' | sed 's/},{/}\\n{/g' | while IFS= read -r dashboard_info; do
                             
                             DASHBOARD_UID=$(extract_json_value "$dashboard_info" "uid")
@@ -130,32 +129,31 @@ pipeline {
                         
                             CLEAN_FOLDER_TITLE=$(echo "$CLEAN_FOLDER_TITLE" | tr -d '\\n\\r\\t')
 
-                            TARGET_GIT_RELATIVE_PATH=""
+                            # *** CORRECTED LOGIC ***
+                            # This block checks if the dashboard's folder is in our map.
+                            # If it is, it proceeds. If not, it silently does nothing and moves to the next dashboard.
                             if [[ -v GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"] ]]; then
                                 TARGET_GIT_RELATIVE_PATH="${GRAFANA_FOLDER_MAP["${CLEAN_FOLDER_TITLE}"]}"
-                            else
-                                echo "Skipping dashboard in unmapped folder: ${CLEAN_FOLDER_TITLE}"
-                                continue
-                            fi
 
-                            SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
-                            CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}"
-                            if [ -n "${TARGET_GIT_RELATIVE_PATH}" ]; then
-                                CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${TARGET_GIT_RELATIVE_PATH}"
-                            fi
-                            
-                            mkdir -p "${CURRENT_SAVE_DIR}"
+                                SANITIZED_DASH_TITLE=$(sanitize_filename "${DASHBOARD_TITLE}")
+                                CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}"
+                                if [ -n "${TARGET_GIT_RELATIVE_PATH}" ]; then
+                                    CURRENT_SAVE_DIR="${GRAFANA_BACKUP_DIR}/${TARGET_GIT_RELATIVE_PATH}"
+                                fi
+                                
+                                mkdir -p "${CURRENT_SAVE_DIR}"
 
-                            filename="${SANITIZED_DASH_TITLE}.json"
-                            filepath="${CURRENT_SAVE_DIR}/${filename}"
+                                filename="${SANITIZED_DASH_TITLE}.json"
+                                filepath="${CURRENT_SAVE_DIR}/${filename}"
 
-                            DASHBOARD_DATA=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/dashboards/uid/${DASHBOARD_UID}")
-                            
-                            if [ -n "${DASHBOARD_DATA}" ] && echo "${DASHBOARD_DATA}" | grep -q '"dashboard"'; then
-                                echo "${DASHBOARD_DATA}" > "${filepath}"
-                                echo "Backed up: ${DASHBOARD_TITLE} -> ${filepath}"
-                            else
-                                echo "Failed to backup dashboard: ${DASHBOARD_TITLE}"
+                                DASHBOARD_DATA=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/dashboards/uid/${DASHBOARD_UID}")
+                                
+                                if [ -n "${DASHBOARD_DATA}" ] && echo "${DASHBOARD_DATA}" | grep -q '"dashboard"'; then
+                                    echo "${DASHBOARD_DATA}" > "${filepath}"
+                                    echo "Backed up: ${DASHBOARD_TITLE} -> ${filepath}"
+                                else
+                                    echo "Failed to backup dashboard: ${DASHBOARD_TITLE}"
+                                fi
                             fi
                         done
 
