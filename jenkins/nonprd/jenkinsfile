@@ -5,13 +5,13 @@ pipeline {
 
     // Sets up an automatic schedule for the pipeline to run.
     triggers {
-        // 'H/2 * * * *' means the job will run approximately every 2 hours.
-        cron('H/2 * * * *')
+        // 'H * * * *' means the job will run approximately every  hour.
+        cron('H * * * *')
     }
 
     // Defines environment variables that will be available throughout the pipeline.
     environment {
-        // Securely loads the Grafana API key from Jenkins credentials.
+       // Securely loads the Grafana API key from Jenkins credentials.
         GRAFANA_API_KEY = credentials('GRAFANA_API_KEY')
         // The URL of your Grafana instance.
         GRAFANA_URL = "https://jstest2025.grafana.net"
@@ -94,7 +94,7 @@ pipeline {
                         declare -A GRAFANA_FOLDER_MAP
                         
                     
-                        GRAFANA_FOLDER_MAP["playground"]=""
+                          GRAFANA_FOLDER_MAP["playground"]=""
                         GRAFANA_FOLDER_MAP["engineering"]="engineering"
                         GRAFANA_FOLDER_MAP["engineering1"]="engineering1"
                         GRAFANA_FOLDER_MAP["experience enginnering"]="experience_engineering"
@@ -110,6 +110,7 @@ pipeline {
                         GRAFANA_FOLDER_MAP["IT and portfolio management - SS"]="it_and_portfolio_management-ss"
                         GRAFANA_FOLDER_MAP["test-test"]="test-test"
                         GRAFANA_FOLDER_MAP["zz"]="zz"
+                        GRAFANA_FOLDER_MAP["Traefik Proxy"]="Traefik_Proxy"
 
                         # Fetches a list of metadata for all dashboards from the Grafana API.
                         ALL_DASHBOARDS_META=$(${CURL_CMD} -s -H "Authorization: Bearer ${GRAFANA_API_KEY}" "${GRAFANA_URL}/api/search?type=dash-db&query=")
@@ -184,7 +185,7 @@ pipeline {
                         // This quoting allows the shell to correctly execute the 'date' command.
                         sh 'git commit -m "Grafana Dashboards Backup - $(date +%Y-%m-%d_%H-%M-%S)"'
                         
-                        withCredentials([string(credentialsId: 'github-creds1', variable: 'GIT_PAT')]) {
+                        withCredentials([string(credentialsId: 'github-creds1'', variable: 'GIT_PAT')]) {
                             sh '''
                                 # Configure Git to use a credential store file
                                 git config credential.helper store
