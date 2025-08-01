@@ -94,8 +94,8 @@ pipeline {
                         # ONLY folders listed here will be backed up.
                         declare -A GRAFANA_FOLDER_MAP
                         
-                        # CORRECTED: Set to an empty string to save dashboards in the root of the backup directory.
-                        GRAFANA_FOLDER_MAP["Playground"]=""
+                        # CORRECTED: Changed to lowercase "playground" to match Grafana UI and set to an empty string.
+                        GRAFANA_FOLDER_MAP["playground"]=""
                         GRAFANA_FOLDER_MAP["engineering"]="engineering"
                         GRAFANA_FOLDER_MAP["engineering1"]="engineering1"
                         GRAFANA_FOLDER_MAP["experience enginnering"]="experience_engineering"
