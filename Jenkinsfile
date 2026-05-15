@@ -20,7 +20,7 @@ pipeline {
                 sh '''#!/bin/bash
                 set -e 
 
-                BACKUP_DIR="dashboards"
+                BACKUP_DIR="older_than_30_days_dashboards"
                 mkdir -p "$BACKUP_DIR"
 
                 echo "Fetching dashboard metadata from Grafana API..."
