@@ -48,7 +48,7 @@ pipeline {
                     
                     if [ -n "$UPDATED_AT" ]; then
                         UPDATED_EPOCH=$(date -d "${UPDATED_AT}" +%s 2>/dev/null || date -f - "${UPDATED_AT}" +%s 2>/dev/null)
-                        THIRTY_DAYS_AGO=$(date -d '1 minute ago' +%s)
+                        THIRTY_DAYS_AGO=$(date -d '30 days ago' +%s)
 
                         # Skip dashboards that have been actively changed within 30 days
                         if [ "$UPDATED_EPOCH" -gt "$THIRTY_DAYS_AGO" ]; then
