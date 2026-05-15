@@ -26,52 +26,34 @@ pipeline {
                 echo "Building Grafana nested folder hierarchy map..."
                 echo "========================================================="
                 
-                # 1. Create associative arrays to store folder relationships
                 declare -A FOLDER_TITLE_MAP
                 declare -A FOLDER_PARENT_MAP
 
-                FOLDERS_RESP=$(curl -s -f -H "Authorization: Bearer $GRAFANA_TOKEN" "$GRAFANA_URL/api/folders")
+                # CHANGED: Using dash-folder search instead of legacy /api/folders
+                FOLDERS_RESP=$(curl -s -H "Authorization: Bearer $GRAFANA_TOKEN" "$GRAFANA_URL/api/search?type=dash-folder")
                 
-                # Parse all folders and map their UIDs to their titles and parent UIDs
                 if [ -n "$FOLDERS_RESP" ] && echo "$FOLDERS_RESP" | jq -e '.[]' >/dev/null 2>&1; then
                     while read -r folder; do
                         f_uid=$(echo "$folder" | jq -r '.uid')
                         f_title=$(echo "$folder" | jq -r '.title' | sed -e 's/[^A-Za-z0-9._-]/_/g')
-                        f_parent=$(echo "$folder" | jq -r '.parentUid // empty')
+                        
+                        # In the search API, 'folderUid' represents the parent folder
+                        f_parent=$(echo "$folder" | jq -r '.folderUid // empty')
                         
                         FOLDER_TITLE_MAP["$f_uid"]="$f_title"
                         FOLDER_PARENT_MAP["$f_uid"]="$f_parent"
+                        
+                        echo "DEBUG MAP -> UID: $f_uid | Title: $f_title | Parent: $f_parent"
                     done < <(echo "$FOLDERS_RESP" | jq -c '.[]')
+                else
+                    echo "WARNING: Failed to fetch folder map. Dashboards may drop to root."
                 fi
-
-                # 2. Function to trace a folder's UID all the way up to the root
-                get_full_path() {
-                    local uid="$1"
-                    local full_path=""
-                    
-                    while [ -n "$uid" ] && [ "$uid" != "null" ]; do
-                        local current_title="${FOLDER_TITLE_MAP[$uid]}"
-                        local parent_uid="${FOLDER_PARENT_MAP[$uid]}"
-                        
-                        if [ -n "$current_title" ]; then
-                            if [ -z "$full_path" ]; then
-                                full_path="$current_title"
-                            else
-                                full_path="$current_title/$full_path"
-                            fi
-                        fi
-                        
-                        uid="$parent_uid"
-                    done
-                    
-                    echo "$full_path"
-                }
 
                 echo "========================================================="
                 echo "Fetching dashboard metadata and backing up..."
                 echo "========================================================="
                 
-                SEARCH_RESP=$(curl -s -f -H "Authorization: Bearer $GRAFANA_TOKEN" "$GRAFANA_URL/api/search?type=dash-db")
+                SEARCH_RESP=$(curl -s -H "Authorization: Bearer $GRAFANA_TOKEN" "$GRAFANA_URL/api/search?type=dash-db")
 
                 echo "$SEARCH_RESP" | jq -c '.[]' | while read -r dash; do
                     
@@ -79,17 +61,45 @@ pipeline {
                     TITLE=$(echo "$dash" | jq -r '.title' | sed -e 's/[^A-Za-z0-9._-]/_/g')
                     FOLDER_UID=$(echo "$dash" | jq -r '.folderUid // empty')
                     
-                    # 3. Determine the full nested folder path
-                    if [ -z "$FOLDER_UID" ] || [ "$FOLDER_UID" == "null" ]; then
-                        FULL_FOLDER_PATH="General"
-                    else
-                        FULL_FOLDER_PATH=$(get_full_path "$FOLDER_UID")
+                    FULL_FOLDER_PATH=""
+
+                    # --- Path Reconstruction Logic ---
+                    if [ -n "$FOLDER_UID" ] && [ "$FOLDER_UID" != "null" ]; then
+                        curr_uid="$FOLDER_UID"
+                        loop_guard=0
                         
-                        # Fallback just in case the folder map missed something
-                        if [ -z "$FULL_FOLDER_PATH" ]; then
-                            FULL_FOLDER_PATH=$(echo "$dash" | jq -r '.folderTitle' | sed -e 's/[^A-Za-z0-9._-]/_/g')
+                        while [ -n "$curr_uid" ] && [ "$curr_uid" != "null" ]; do
+                            curr_title="${FOLDER_TITLE_MAP[$curr_uid]}"
+                            parent_uid="${FOLDER_PARENT_MAP[$curr_uid]}"
+
+                            if [ -n "$curr_title" ]; then
+                                if [ -z "$FULL_FOLDER_PATH" ]; then
+                                    FULL_FOLDER_PATH="$curr_title"
+                                else
+                                    FULL_FOLDER_PATH="$curr_title/$FULL_FOLDER_PATH"
+                                fi
+                            else
+                                break
+                            fi
+                            
+                            curr_uid="$parent_uid"
+                            
+                            # Failsafe to prevent infinite loops if Grafana API loops
+                            loop_guard=$((loop_guard + 1))
+                            if [ $loop_guard -gt 20 ]; then break; fi
+                        done
+                    fi
+
+                    # Fallback if mapping missed something
+                    if [ -z "$FULL_FOLDER_PATH" ]; then
+                        fallback_title=$(echo "$dash" | jq -r '.folderTitle // empty' | sed -e 's/[^A-Za-z0-9._-]/_/g')
+                        if [ -n "$fallback_title" ] && [ "$fallback_title" != "null" ]; then
+                            FULL_FOLDER_PATH="$fallback_title"
+                        else
+                            FULL_FOLDER_PATH="General"
                         fi
                     fi
+                    # --- End Path Reconstruction ---
 
                     # Fetch full dashboard data
                     FULL_DASH=$(curl -s -f -H "Authorization: Bearer $GRAFANA_TOKEN" \
@@ -107,9 +117,9 @@ pipeline {
                         fi
                     fi
 
-                    # 4. Save the dashboard using the fully resolved nested path
+                    # Save the dashboard into the newly mapped folder path
                     mkdir -p "$BACKUP_DIR/$FULL_FOLDER_PATH"
-                    echo "--> BACKING UP: $FULL_FOLDER_PATH / $TITLE ($DASH_UID)"
+                    echo "--> BACKING UP: $BACKUP_DIR/$FULL_FOLDER_PATH / $TITLE ($DASH_UID)"
                     
                     echo "$FULL_DASH" | jq '.dashboard | .id = null' > "$BACKUP_DIR/$FULL_FOLDER_PATH/${TITLE}_${DASH_UID}.json"
                         
