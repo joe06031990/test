@@ -2,7 +2,6 @@ pipeline {
     agent any
     
     environment {
-        // Your specific Grafana and Git variables
         GRAFANA_TOKEN = credentials('GRAFANA_API_KEY')
         GRAFANA_URL   = 'https://jstest2025.grafana.net'
         GIT_REPO_URL  = 'https://github.com/joe06031990/test'
@@ -11,15 +10,15 @@ pipeline {
     stages {
         stage('Clone Backup Repo') {
             steps {
-                // Checks out the main branch of your GitHub repo
-                git branch: 'main', url: "${GIT_REPO_URL}"
+                // Check out the master branch where the backups will be saved
+                git branch: 'master', url: "${GIT_REPO_URL}"
             }
         }
 
         stage('Backup Dashboards via Bash') {
             steps {
                 sh '''#!/bin/bash
-                set -e # Exit immediately if a command exits with a non-zero status
+                set -e 
 
                 BACKUP_DIR="dashboards"
                 mkdir -p "$BACKUP_DIR"
@@ -33,12 +32,10 @@ pipeline {
                 # Iterate through each dashboard using jq
                 echo "$SEARCH_RESP" | jq -c '.[]' | while read -r dash; do
                     
-                    # Extract variables
                     DASH_UID=$(echo "$dash" | jq -r '.uid')
                     TITLE=$(echo "$dash" | jq -r '.title' | sed -e 's/[^A-Za-z0-9._-]/_/g')
                     FOLDER=$(echo "$dash" | jq -r '.folderTitle' | sed -e 's/[^A-Za-z0-9._-]/_/g')
                     
-                    # If dashboard is in the root, the folder API returns "null"
                     if [ "$FOLDER" == "null" ] || [ -z "$FOLDER" ]; then
                         FOLDER="General"
                     fi
@@ -47,7 +44,7 @@ pipeline {
                     
                     echo "Exporting: $FOLDER / $TITLE ($DASH_UID)"
                     
-                    # Fetch the actual dashboard JSON and extract just the 'dashboard' object
+                    # Fetch the actual dashboard JSON and remove the internal 'id'
                     curl -s -f -H "Authorization: Bearer $GRAFANA_TOKEN" \
                         "$GRAFANA_URL/api/dashboards/uid/$DASH_UID" | \
                         jq '.dashboard | .id = null' > "$BACKUP_DIR/$FOLDER/${TITLE}_${DASH_UID}.json"
@@ -75,7 +72,10 @@ pipeline {
                     echo "No dashboard changes detected. Skipping commit."
                 else
                     git commit -m "Automated Grafana Backup: $(date +'%Y-%m-%d')"
-                    git push origin main
+                    
+                    # Push the backups specifically to the master branch
+                    git push origin master
+                    
                     echo "Successfully pushed updates to GitHub."
                 fi
                 '''
