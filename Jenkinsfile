@@ -14,7 +14,7 @@ pipeline {
             }
         }
 
-        stage('Backup Stale Dashboards via Bash') {
+        stage('Backup Dashboards via Bash') {
             steps {
                 sh '''#!/bin/bash
                 set -e 
@@ -23,33 +23,9 @@ pipeline {
                 mkdir -p "$BACKUP_DIR"
 
                 echo "========================================================="
-                echo "1. Querying Grafana Cloud Usage Insights via LogQL..."
+                echo "Fetching all dashboard metadata from Grafana..."
                 echo "========================================================="
-
-                # Use native LogQL JSON extraction to unpack the fields dynamically
-                LOKI_QUERY='{namespace="usage-insights"} | json | type="dashboard_view"'
                 
-                # Fetching logs up to 5000 entries within the last 30 days
-                START_TIME=$(date -d '30 days ago' +%s)
-
-                METRICS_RESP=$(curl -s -f -H "Authorization: Bearer $GRAFANA_TOKEN" \
-                    --data-urlencode "query=${LOKI_QUERY}" \
-                    --data-urlencode "limit=5000" \
-                    --data-urlencode "start=${START_TIME}" \
-                    "$GRAFANA_URL/api/datasources/proxy/uid/grafanacloud-usage-insights/loki/api/v1/query_range")
-
-                # Parse the extracted JSON fields directly using jq rather than text filters
-                ACTIVE_UIDS=$(echo "$METRICS_RESP" | jq -r '.data.result[].values[][1] | fromjson | .dashboard_uid // empty' 2>/dev/null | sort -u || true)
-
-                echo "Found active dashboard UIDs in last 30 days:"
-                if [ -z "$ACTIVE_UIDS" ]; then
-                    echo "[NONE - No dashboard views recorded in logs]"
-                else
-                    echo "$ACTIVE_UIDS"
-                fi
-                echo "========================================================="
-
-                echo "2. Fetching all dashboard metadata..."
                 SEARCH_RESP=$(curl -s -f -H "Authorization: Bearer $GRAFANA_TOKEN" \
                     "$GRAFANA_URL/api/search?type=dash-db")
 
@@ -63,19 +39,30 @@ pipeline {
                         FOLDER="General"
                     fi
 
-                    # Match check: If found in active list, skip it!
-                    if [ -n "$ACTIVE_UIDS" ] && echo "$ACTIVE_UIDS" | grep -qx "$DASH_UID"; then
-                        echo "Skipping active dashboard (viewed within 30 days): $FOLDER / $TITLE"
-                        continue
+                    # Fetch full individual dashboard details to check its exact lifecycle data
+                    FULL_DASH=$(curl -s -f -H "Authorization: Bearer $GRAFANA_TOKEN" \
+                        "$GRAFANA_URL/api/dashboards/uid/$DASH_UID")
+
+                    # Extract the updated timestamp string (e.g., "2026-05-15T21:00:00Z")
+                    UPDATED_AT=$(echo "$FULL_DASH" | jq -r '.meta.updated // empty')
+                    
+                    # Convert to Unix epoch seconds across systems
+                    if [ -n "$UPDATED_AT" ]; then
+                        UPDATED_EPOCH=$(date -d "${UPDATED_AT}" +%s 2>/dev/null || date -f - "${UPDATED_AT}" +%s 2>/dev/null)
+                        THIRTY_DAYS_AGO=$(date -d '30 days ago' +%s)
+
+                        # FILTER ENGINE: If modified within 30 days, skip it from the archival backup directory
+                        if [ "$UPDATED_EPOCH" -gt "$THIRTY_DAYS_AGO" ]; then
+                            echo "Skipping active dashboard (modified within 30 days): $FOLDER / $TITLE"
+                            continue
+                        fi
                     fi
 
-                    # Otherwise, back it up
+                    # If it passes the filter checks, it is stale! Write JSON output
                     mkdir -p "$BACKUP_DIR/$FOLDER"
                     echo "--> BACKING UP STALE DASHBOARD: $FOLDER / $TITLE ($DASH_UID)"
                     
-                    curl -s -f -H "Authorization: Bearer $GRAFANA_TOKEN" \
-                        "$GRAFANA_URL/api/dashboards/uid/$DASH_UID" | \
-                        jq '.dashboard | .id = null' > "$BACKUP_DIR/$FOLDER/${TITLE}_${DASH_UID}.json"
+                    echo "$FULL_DASH" | jq '.dashboard | .id = null' > "$BACKUP_DIR/$FOLDER/${TITLE}_${DASH_UID}.json"
                         
                 done
                 
