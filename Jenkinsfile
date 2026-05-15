@@ -19,29 +19,30 @@ pipeline {
                 sh '''#!/bin/bash
                 set -e 
 
-                BACKUP_DIR="dashboards_not_used_in_30_days"
+                BACKUP_DIR="dashboards"
                 mkdir -p "$BACKUP_DIR"
 
                 echo "========================================================="
-                echo "1. Querying Grafana Cloud Usage Insights (Last 30 Days)..."
+                echo "1. Querying Grafana Cloud Usage Metrics (Last 30 Days)..."
                 echo "========================================================="
 
-                # Target the managed usage insights Loki data source directly via proxy API
-                # LogQL query filters for dashboard views and extracts the dashboard UID
-                LOKI_QUERY='{namespace="usage-insights"} |= "type=\\"dashboard_view\\""'
+                # We query the Prometheus API proxy using the enterprise view metric
+                # This calculates any dashboard that has had an increase in views over 30 days
+                PROM_QUERY='sum(increase(grafana_api_dashboard_view_total[30d])) by (uid) > 0'
                 
-                ACTIVE_UIDS_JSON=$(curl -s -f -H "Authorization: Bearer $GRAFANA_TOKEN" \
-                    --data-urlencode "query=${LOKI_QUERY}" \
-                    --data-urlencode "direction=forward" \
-                    --data-urlencode "limit=5000" \
-                    --data-urlencode "start=$(date -d '3 hours ago' +%s)" \
-                    "$GRAFANA_URL/api/datasources/proxy/uid/grafanacloud-usage-insights/loki/api/v1/query_range")
+                METRICS_RESP=$(curl -s -f -H "Authorization: Bearer $GRAFANA_TOKEN" \
+                    --data-urlencode "query=${PROM_QUERY}" \
+                    "$GRAFANA_URL/api/datasources/proxy/uid/grafanacloud-usage-insights/api/v1/query")
 
-                # Parse out unique dashboard UIDs using jq regex matching on the log line string
-                ACTIVE_UIDS=$(echo "$ACTIVE_UIDS_JSON" | jq -r '.data.result[].values[][1]' | grep -o 'dashboard_uid=[^, ]*' | cut -d= -f2 | sort -u)
+                # Safely parse the UIDs directly out of the metric labels
+                ACTIVE_UIDS=$(echo "$METRICS_RESP" | jq -r '.data.result[].metric.uid // empty' | sort -u)
 
                 echo "Found active dashboard UIDs in last 30 days:"
-                echo "$ACTIVE_UIDS"
+                if [ -z "$ACTIVE_UIDS" ]; then
+                    echo "[NONE]"
+                else
+                    echo "$ACTIVE_UIDS"
+                fi
                 echo "========================================================="
 
                 echo "2. Fetching all dashboard metadata..."
@@ -58,10 +59,7 @@ pipeline {
                         FOLDER="General"
                     fi
 
-                    # ---------------------------------------------------------
-                    # THE 30-DAY FILTER LOGIC
                     # Check if our current DASH_UID exists in the ACTIVE_UIDS list
-                    # ---------------------------------------------------------
                     if echo "$ACTIVE_UIDS" | grep -qx "$DASH_UID"; then
                         echo "Skipping active dashboard (viewed within 30 days): $FOLDER / $TITLE"
                         continue
