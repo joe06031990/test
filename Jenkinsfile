@@ -34,7 +34,7 @@ pipeline {
                     --data-urlencode "query=${LOKI_QUERY}" \
                     --data-urlencode "direction=forward" \
                     --data-urlencode "limit=5000" \
-                    --data-urlencode "start=$(date -d '30 days ago' +%s)" \
+                    --data-urlencode "start=$(date -d '3 hours ago' +%s)" \
                     "$GRAFANA_URL/api/datasources/proxy/uid/grafanacloud-usage-insights/loki/api/v1/query_range")
 
                 # Parse out unique dashboard UIDs using jq regex matching on the log line string
