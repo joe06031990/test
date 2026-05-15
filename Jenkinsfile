@@ -19,7 +19,7 @@ pipeline {
                 sh '''#!/bin/bash
                 set -e 
 
-                BACKUP_DIR="dashboards"
+                BACKUP_DIR="dashboards_not_used_in_30_days"
                 mkdir -p "$BACKUP_DIR"
 
                 echo "========================================================="
