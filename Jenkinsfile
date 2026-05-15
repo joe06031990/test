@@ -25,11 +25,9 @@ pipeline {
 
                 echo "Fetching dashboard metadata from Grafana API..."
                 
-                # Fetch all items of type 'dash-db'
                 SEARCH_RESP=$(curl -s -f -H "Authorization: Bearer $GRAFANA_TOKEN" \
                     "$GRAFANA_URL/api/search?type=dash-db")
 
-                # Iterate through each dashboard using jq
                 echo "$SEARCH_RESP" | jq -c '.[]' | while read -r dash; do
                     
                     DASH_UID=$(echo "$dash" | jq -r '.uid')
@@ -44,7 +42,6 @@ pipeline {
                     
                     echo "Exporting: $FOLDER / $TITLE ($DASH_UID)"
                     
-                    # Fetch the actual dashboard JSON and remove the internal 'id'
                     curl -s -f -H "Authorization: Bearer $GRAFANA_TOKEN" \
                         "$GRAFANA_URL/api/dashboards/uid/$DASH_UID" | \
                         jq '.dashboard | .id = null' > "$BACKUP_DIR/$FOLDER/${TITLE}_${DASH_UID}.json"
@@ -58,27 +55,30 @@ pipeline {
         
         stage('Commit to Git') {
             steps {
-                sh '''#!/bin/bash
-                set -e
-                
-                git config user.name "Jenkins Backup Bot"
-                git config user.email "jenkins@your-company.com"
-                
-                # Add all JSON files in the dashboards directory
-                git add dashboards/
-                
-                # Check if there are actually any changes to commit
-                if git diff-index --quiet HEAD --; then
-                    echo "No dashboard changes detected. Skipping commit."
-                else
-                    git commit -m "Automated Grafana Backup: $(date +'%Y-%m-%d')"
+                // IMPORTANT: Replace 'YOUR_GITHUB_CREDENTIAL_ID' with your Jenkins GitHub Credential ID
+                withCredentials([usernamePassword(credentialsId: '370af9a5-4d10-4db5-8f4a-4ef5411d1d7e', passwordVariable: 'GIT_PASSWORD', usernameVariable: 'GIT_USERNAME')]) {
+                    sh '''#!/bin/bash
+                    set -e
                     
-                    # Push the backups specifically to the master branch
-                    git push origin master
+                    git config user.name "Jenkins Backup Bot"
+                    git config user.email "jenkins@your-company.com"
                     
-                    echo "Successfully pushed updates to GitHub."
-                fi
-                '''
+                    # Add all JSON files in the dashboards directory
+                    git add dashboards/
+                    
+                    # Check if there are actually any changes to commit
+                    if git diff-index --quiet HEAD --; then
+                        echo "No dashboard changes detected. Skipping commit."
+                    else
+                        git commit -m "Automated Grafana Backup: $(date +'%Y-%m-%d')"
+                        
+                        # Push using the securely injected GitHub credentials
+                        git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/joe06031990/test.git master
+                        
+                        echo "Successfully pushed updates to GitHub."
+                    fi
+                    '''
+                }
             }
         }
     }
