@@ -9,7 +9,7 @@ pipeline {
         GRAFANA_TOKEN = credentials('GRAFANA_API_KEY')
         GRAFANA_URL   = 'https://jstest2025.grafana.net'
         GIT_REPO_URL  = 'https://github.com/joe06031990/test'
-        GIT_BRANCH    = ‘master’ 
+        GIT_BRANCH    = 'master' 
 }
     stages {
         stage('Clone Backup Repo') {
