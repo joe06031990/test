@@ -10,7 +10,7 @@ pipeline {
         GRAFANA_URL   = 'https://jstest2025.grafana.net'
         GIT_REPO_URL  = 'https://github.com/joe06031990/test'
         GIT_BRANCH    = ‘master’ 
-
+}
     stages {
         stage('Clone Backup Repo') {
             steps {
@@ -143,8 +143,8 @@ pipeline {
                     git config user.name "Jenkins Backup"
                     git config user.email "jenkins"
                     
-                    if [ -d "dashboard_not_viewed_in_30_days" ]; then
-                        git add dashboard_not_viewed_in_30_days/
+                    if [ -d "dashboard_not_viewed_in_30_days_non_prd" ]; then
+                        git add dashboard_not_viewed_in_30_days_non_prd/
                     fi
                     
                     if git diff-index --quiet HEAD --; then
