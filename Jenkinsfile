@@ -156,8 +156,8 @@ pipeline {
                     git config user.name "Jenkins Backup"
                     git config user.email "jenkins"
                     
-                    if [ -d "dashboard_not_viewed_in_30_days_non_prd" ]; then
-                        git add dashboard_not_viewed_in_30_days_non_prd/
+                    if [ -d "dashboard_playground" ]; then
+                        git add dashboard_playground/
                     fi
                     
                     if git diff-index --quiet HEAD --; then
