@@ -20,10 +20,28 @@ pipeline {
                 BACKUP_DIR="dashboard_not_viewed_in_30_days_non_prd"
                 mkdir -p "$BACKUP_DIR"
                 
-                # 1. Download a pre-compiled, standalone jq binary to the local workspace
-                echo "Downloading standalone jq binary..."
-                curl -L -s -o ./jq https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux64
+                # 1. Determine architecture and download the correct standalone jq binary
+                ARCH=$(uname -m)
+                echo "Detected node architecture: $ARCH"
+                
+                if [ "$ARCH" = "x86_64" ]; then
+                    JQ_BIN="jq-linux64"
+                elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+                    JQ_BIN="jq-linux-arm64"
+                elif [ "$ARCH" = "i686" ]; then
+                    JQ_BIN="jq-linux32"
+                else
+                    echo "ERROR: Unsupported architecture ($ARCH) for standalone jq download."
+                    exit 1
+                fi
+
+                echo "Downloading standalone $JQ_BIN..."
+                curl -L -s -o ./jq "https://github.com/jqlang/jq/releases/download/jq-1.7.1/$JQ_BIN"
                 chmod +x ./jq
+                
+                # Test the binary immediately to fail fast if it's still incompatible
+                ./jq --version
+                
                 echo "========================================================="
                 echo "Building Grafana nested folder hierarchy map..."
                 echo "========================================================="
@@ -132,7 +150,8 @@ pipeline {
                         echo "No dashboard changes detected. Skipping commit."
                     else
                         git commit -m "Automated Grafana Dashboard Backup: $(date +'%Y-%m-%d %H:%M:%S')"
-                        git push "https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/joe06031990/test/.git" HEAD:${GIT_BRANCH}
+                        # Fixed the URL string below to end in .git instead of /.git
+                        git push "https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/joe06031990/test.git" HEAD:${GIT_BRANCH}
                         echo "Successfully pushed updates to GitHub."
                     fi
                     '''
