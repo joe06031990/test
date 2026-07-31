@@ -18,6 +18,9 @@ pipeline {
                 set -e 
                 
                 BACKUP_DIR="dashboard_not_viewed_in_30_days_non_prd"
+                # Define the specific folder you want to target
+                TARGET_FOLDER="playground"
+                
                 mkdir -p "$BACKUP_DIR"
                 
                 # 1. Determine architecture and download the correct standalone jq binary
@@ -54,6 +57,7 @@ pipeline {
                 if echo "$FOLDERS_RESP" | grep -q '"message":'; then
                     echo "WARNING: Folder API returned an error message. Processing may be incomplete."
                 fi
+                
                 # Process folders using the local ./jq binary
                 while read -r folder; do
                     f_uid=$(echo "$folder" | ./jq -r '.uid // empty')
@@ -65,8 +69,9 @@ pipeline {
                         FOLDER_PARENT_MAP["$f_uid"]="$f_parent"
                     fi
                 done < <(echo "$FOLDERS_RESP" | ./jq -c '.[]')
+                
                 echo "========================================================="
-                echo "Fetching dashboard metadata and backing up..."
+                echo "Fetching dashboard metadata and filtering for '$TARGET_FOLDER'..."
                 echo "========================================================="
                 
                 SEARCH_RESP=$(curl -s -H "Authorization: Bearer $GRAFANA_TOKEN" "$GRAFANA_URL/api/search?type=dash-db")
@@ -111,6 +116,7 @@ pipeline {
                             if [ $loop_guard -gt 20 ]; then break; fi
                         done
                     fi
+                    
                     if [ -z "$FULL_FOLDER_PATH" ]; then
                         fallback_title=$(echo "$dash" | ./jq -r '.folderTitle // empty' | sed -e 's/[^A-Za-z0-9._-]/_/g')
                         if [ -n "$fallback_title" ] && [ "$fallback_title" != "null" ]; then
@@ -119,6 +125,14 @@ pipeline {
                             FULL_FOLDER_PATH="General"
                         fi
                     fi
+
+                    # --- NEW FILTERING LOGIC ---
+                    # Skip if the path is not exactly "playground" AND doesn't start with "playground/"
+                    if [[ "$FULL_FOLDER_PATH" != "$TARGET_FOLDER" ]] && [[ "$FULL_FOLDER_PATH" != "$TARGET_FOLDER"/* ]]; then
+                        continue
+                    fi
+                    # ---------------------------
+                    
                     FULL_DASH=$(curl -s -f -H "Authorization: Bearer $GRAFANA_TOKEN" "$GRAFANA_URL/api/dashboards/uid/$DASH_UID" || echo "")
                     
                     if [ -n "$FULL_DASH" ]; then
@@ -150,7 +164,6 @@ pipeline {
                         echo "No dashboard changes detected. Skipping commit."
                     else
                         git commit -m "Automated Grafana Dashboard Backup: $(date +'%Y-%m-%d %H:%M:%S')"
-                        # Fixed the URL string below to end in .git instead of /.git
                         git push "https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/joe06031990/test.git" HEAD:${GIT_BRANCH}
                         echo "Successfully pushed updates to GitHub."
                     fi
