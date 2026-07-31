@@ -17,7 +17,7 @@ pipeline {
                 sh '''#!/bin/bash
                 set -e 
                 
-                BACKUP_DIR="dashboard_not_viewed_in_30_days_non_prd"
+                BACKUP_DIR="dashboard_playground"
                 # Define the specific folder you want to target
                 TARGET_FOLDER="playground"
                 
