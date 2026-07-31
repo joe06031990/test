@@ -119,7 +119,7 @@ pipeline {
         }
         stage('Commit to Git') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'j370af9a5-4d10-4db5-8f4a-4ef5411d1d7e', passwordVariable: 'GIT_PASSWORD', usernameVariable: 'GIT_USERNAME')]) {
+                withCredentials([usernamePassword(credentialsId: '370af9a5-4d10-4db5-8f4a-4ef5411d1d7e', passwordVariable: 'GIT_PASSWORD', usernameVariable: 'GIT_USERNAME')]) {
                     sh '''#!/bin/bash
                     git config user.name "Jenkins Backup"
                     git config user.email "jenkins"
